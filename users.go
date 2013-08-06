@@ -27,7 +27,9 @@ func listUsers(t *Task) {
 	id, name, email, created := "", "", "", time.Time{}
 	var users []map[string]string
 	for rows.Next() {
-		rows.Scan(&id, &name, &email, &created)
+		if err := rows.Scan(&id, &name, &email, &created); err != nil {
+			panic(err)
+		}
 		users = append(users, map[string]string{
 			"id":      id,
 			"name":    name,
@@ -95,7 +97,9 @@ func getUser(t *Task) {
 	}
 
 	id, name, email, created := "", "", "", time.Time{}
-	rows.Scan(&id, &name, &email, &created)
+	if err := rows.Scan(&id, &name, &email, &created); err != nil {
+		panic(err)
+	}
 
 	t.SendJson(map[string]string{
 		"id":      id,
@@ -129,7 +133,7 @@ func changeUser(t *Task) {
 
 	if len(fields) > 0 {
 		set, vals := setClause(fields, uid)
-		_, err := t.Tx.Exec(`UPDATE "users" `+set+`WHERE "id" = $1`, vals...)
+		_, err := t.Tx.Exec(`UPDATE "users" `+set+` WHERE "id" = $1`, vals...)
 
 		if err != nil {
 			panic(err)
