@@ -7,9 +7,10 @@ import (
 )
 
 type Task struct {
-	Rw http.ResponseWriter
-	Rq *http.Request
-	Tx *sql.Tx
+	Rw  http.ResponseWriter
+	Rq  *http.Request
+	Tx  *sql.Tx
+	Uid string
 }
 
 func (t *Task) SendJson(data interface{}) {

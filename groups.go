@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var groupsRouter = Transactional{PrefixRouter(map[string]Handler{
+var groupsRouter = &Transactional{PrefixRouter(map[string]Handler{
 	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listGroups),
 		"POST": HandlerFunc(createGroup),

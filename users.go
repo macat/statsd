@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var usersRouter = Transactional{PrefixRouter(map[string]Handler{
+var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listUsers),
 		"POST": HandlerFunc(createUser),

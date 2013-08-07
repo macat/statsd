@@ -10,5 +10,5 @@ func (s Static) Serve(t *Task) {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
 	}
-	http.ServeFile(t.Rw, t.Rq, string(s) + path)
+	http.ServeFile(t.Rw, t.Rq, string(s)+path)
 }

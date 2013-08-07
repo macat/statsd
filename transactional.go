@@ -10,7 +10,7 @@ type Transactional struct {
 	Handler
 }
 
-func (h Transactional) Serve(t *Task) {
+func (h *Transactional) Serve(t *Task) {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Println("BEGIN failed:", err)
