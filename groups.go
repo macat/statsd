@@ -49,7 +49,7 @@ func createGroup(t *Task) {
 
 	name, ok := data["name"].(string)
 	if !ok {
-		t.Rw.WriteHeader(http.StatusBadRequest)
+		t.SendError("'name' is required")
 		return
 	}
 
@@ -108,7 +108,7 @@ func changeGroup(t *Task) {
 
 	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
-		t.Rw.WriteHeader(http.StatusBadRequest)
+		t.Rw.WriteHeaders(http.StatusBadRequest)
 		return
 	}
 

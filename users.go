@@ -50,13 +50,13 @@ func createUser(t *Task) {
 
 	name, ok := data["name"].(string)
 	if !ok {
-		t.Rw.WriteHeader(http.StatusBadRequest)
+		t.SendError("'name' is required")
 		return
 	}
 
 	email, ok := data["email"].(string) // TODO: validate email
 	if !ok {
-		t.Rw.WriteHeader(http.StatusBadRequest)
+		t.SendError("'email' is required")
 		return
 	}
 

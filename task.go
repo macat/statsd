@@ -30,6 +30,11 @@ func (t *Task) RecvJson() interface{} {
 	return data
 }
 
+func (t *Task) SendError(msg string) {
+	t.SendJson(map[string]string{"msg": msg})
+	t.Rw.WriteHeader(http.StatusBadRequest)
+}
+
 type Handler interface {
 	Serve(*Task)
 }

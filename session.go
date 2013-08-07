@@ -11,7 +11,6 @@ import (
 
 const (
 	SessionCookieName      = "sid"
-	SessionCookiePath      = "/"
 	SessionExpiry          = 2 * time.Hour
 	SessionCleanupInterval = 1 * time.Minute
 )
@@ -57,7 +56,7 @@ func (s *Session) ensureSession(t *Task) (string, string) {
 	} else {
 		sid = cookie.Value
 		entry, ok = s.entries[sid]
-		if !ok {
+		if !ok || time.Now().Sub(entry.idleSince) >= SessionExpiry {
 			newSession = true
 		}
 	}
@@ -81,7 +80,7 @@ func (s *Session) ensureSession(t *Task) (string, string) {
 		http.SetCookie(t.Rw, &http.Cookie{
 			Name:     SessionCookieName,
 			Value:    sid,
-			Path:     "/",
+			Path:     appRoot,
 			HttpOnly: true,
 		})
 	} else {

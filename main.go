@@ -11,6 +11,7 @@ const (
 	addr     = ":9000"
 	dbDriver = "postgres"
 	dsName   = "sslmode=disable"
+	appRoot  = "/"
 )
 
 var (
