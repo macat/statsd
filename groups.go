@@ -108,7 +108,7 @@ func changeGroup(t *Task) {
 
 	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
-		t.Rw.WriteHeaders(http.StatusBadRequest)
+		t.Rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
