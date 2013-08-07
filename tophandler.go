@@ -1,8 +1,7 @@
 package main
 
 var topHandler = PrefixRouter(map[string]Handler{
-	"/":       nil,
-	"/static": nil,
+	"*":       Static("./static"),
 	"/users":  usersRouter,
 	"/groups": groupsRouter,
 })
