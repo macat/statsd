@@ -25,7 +25,7 @@ func listGroups(t *Task) {
 	defer rows.Close()
 
 	id, name, created := "", "", time.Time{}
-	var groups []map[string]string
+	groups := make([]map[string]string, 0)
 	for rows.Next() {
 		if err := rows.Scan(&id, &name, &created); err != nil {
 			panic(err)
@@ -48,7 +48,7 @@ func createGroup(t *Task) {
 	}
 
 	name, ok := data["name"].(string)
-	if !ok {
+	if !ok || name == "" {
 		t.SendError("'name' is required")
 		return
 	}
@@ -115,6 +115,10 @@ func changeGroup(t *Task) {
 	fields := map[string]interface{}{}
 
 	if name, ok := data["name"].(string); ok {
+		if name == "" {
+			t.SendError("'name' is required")
+			return
+		}
 		fields["name"] = name
 	}
 

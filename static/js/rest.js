@@ -1,5 +1,5 @@
 function rest(method, url, callback, data) {
-	var xhr = new XMLHttpRequest(), data;
+	var xhr = new XMLHttpRequest(), response;
 	xhr.timeout = 5000;
 	xhr.open(method, url);
 	xhr.setRequestHeader('Content-Type', 'application/json; charset=utf-8');
@@ -8,13 +8,13 @@ function rest(method, url, callback, data) {
 			return;		
 		}
 		try {
-			data = JSON.parse(xhr.responseText);
+			response = JSON.parse(xhr.responseText);
 		} catch (e) {
 		}
 		if (typeof callback == "function") {
-			callback(xhr.status, data);
+			callback(xhr.status, response);
 		} else {
-			console.log(xhr.status, data);
+			console.log(xhr.status, response);
 		}
 	};
 	if (typeof data != "undefined") {

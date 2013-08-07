@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"time"
+	"database/sql"
 )
 
 var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
@@ -25,7 +26,7 @@ func listUsers(t *Task) {
 	defer rows.Close()
 
 	id, name, email, created := "", "", "", time.Time{}
-	var users []map[string]string
+	users := make([]map[string]string, 0)
 	for rows.Next() {
 		if err := rows.Scan(&id, &name, &email, &created); err != nil {
 			panic(err)
@@ -49,14 +50,19 @@ func createUser(t *Task) {
 	}
 
 	name, ok := data["name"].(string)
-	if !ok {
+	if !ok || name == "" {
 		t.SendError("'name' is required")
 		return
 	}
 
 	email, ok := data["email"].(string) // TODO: validate email
-	if !ok {
+	if !ok || email == "" {
 		t.SendError("'email' is required")
+		return
+	}
+
+	if emailUsed(t, email) != "" {
+		t.Rw.WriteHeader(http.StatusConflict)
 		return
 	}
 
@@ -124,10 +130,22 @@ func changeUser(t *Task) {
 	fields := map[string]interface{}{}
 
 	if name, ok := data["name"].(string); ok {
+		if name == "" {
+			t.SendError("'name' is required")
+			return
+		}
 		fields["name"] = name
 	}
 
 	if email, ok := data["email"].(string); ok { // TODO: validate email
+		if email == "" {
+			t.SendError("'email' is required")
+			return
+		}
+		if usedBy := emailUsed(t, email); usedBy != "" && usedBy != uid {
+			t.Rw.WriteHeader(http.StatusConflict)
+			return
+		}
 		fields["email"] = email
 	}
 
@@ -174,5 +192,16 @@ func userExists(t *Task) string {
 		return ""
 	}
 
+	return uid
+}
+
+func emailUsed(t *Task, email string) string {
+	row := t.Tx.QueryRow(`SELECT "id" FROM "users" WHERE "email" = $1`, email)
+	uid := ""
+	if err := row.Scan(&uid); err != nil {
+		if err != sql.ErrNoRows {
+			panic(err)
+		}
+	}
 	return uid
 }
