@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var usersRouter = PrefixRouter(map[string]Handler{
+var usersRouter = Transactional{PrefixRouter(map[string]Handler{
 	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listUsers),
 		"POST": HandlerFunc(createUser),
@@ -15,7 +15,7 @@ var usersRouter = PrefixRouter(map[string]Handler{
 		"PATCH":  HandlerFunc(changeUser),
 		"DELETE": HandlerFunc(deleteUser),
 	}),
-})
+})}
 
 func listUsers(t *Task) {
 	rows, err := t.Tx.Query(`SELECT "id", "name", "email", "created" FROM "users"`)
@@ -54,7 +54,7 @@ func createUser(t *Task) {
 		return
 	}
 
-	email, ok := data["email"].(string)
+	email, ok := data["email"].(string) // TODO: validate email
 	if !ok {
 		t.Rw.WriteHeader(http.StatusBadRequest)
 		return
@@ -127,7 +127,7 @@ func changeUser(t *Task) {
 		fields["name"] = name
 	}
 
-	if email, ok := data["email"].(string); ok {
+	if email, ok := data["email"].(string); ok { // TODO: validate email
 		fields["email"] = email
 	}
 

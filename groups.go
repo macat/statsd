@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var groupsRouter = PrefixRouter(map[string]Handler{
+var groupsRouter = Transactional{PrefixRouter(map[string]Handler{
 	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listGroups),
 		"POST": HandlerFunc(createGroup),
@@ -15,7 +15,7 @@ var groupsRouter = PrefixRouter(map[string]Handler{
 		"PATCH":  HandlerFunc(changeGroup),
 		"DELETE": HandlerFunc(deleteGroup),
 	}),
-})
+})}
 
 func listGroups(t *Task) {
 	rows, err := t.Tx.Query(`SELECT "id", "name", "created" FROM "groups"`)
