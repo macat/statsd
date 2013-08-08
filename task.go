@@ -7,9 +7,10 @@ import (
 )
 
 type Task struct {
-	Rw http.ResponseWriter
-	Rq *http.Request
-	Tx *sql.Tx
+	Rw  http.ResponseWriter
+	Rq  *http.Request
+	Tx  *sql.Tx
+	Uid string
 }
 
 func (t *Task) SendJson(data interface{}) {
@@ -27,6 +28,11 @@ func (t *Task) RecvJson() interface{} {
 		return nil
 	}
 	return data
+}
+
+func (t *Task) SendError(msg string) {
+	t.SendJson(map[string]string{"msg": msg})
+	t.Rw.WriteHeader(http.StatusBadRequest)
 }
 
 type Handler interface {

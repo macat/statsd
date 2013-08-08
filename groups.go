@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-var groupsRouter = PrefixRouter(map[string]Handler{
+var groupsRouter = &Transactional{PrefixRouter(map[string]Handler{
 	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listGroups),
 		"POST": HandlerFunc(createGroup),
@@ -15,7 +15,7 @@ var groupsRouter = PrefixRouter(map[string]Handler{
 		"PATCH":  HandlerFunc(changeGroup),
 		"DELETE": HandlerFunc(deleteGroup),
 	}),
-})
+})}
 
 func listGroups(t *Task) {
 	rows, err := t.Tx.Query(`SELECT "id", "name", "created" FROM "groups"`)
@@ -25,7 +25,7 @@ func listGroups(t *Task) {
 	defer rows.Close()
 
 	id, name, created := "", "", time.Time{}
-	var groups []map[string]string
+	groups := make([]map[string]string, 0)
 	for rows.Next() {
 		if err := rows.Scan(&id, &name, &created); err != nil {
 			panic(err)
@@ -48,8 +48,8 @@ func createGroup(t *Task) {
 	}
 
 	name, ok := data["name"].(string)
-	if !ok {
-		t.Rw.WriteHeader(http.StatusBadRequest)
+	if !ok || name == "" {
+		t.SendError("'name' is required")
 		return
 	}
 
@@ -115,6 +115,10 @@ func changeGroup(t *Task) {
 	fields := map[string]interface{}{}
 
 	if name, ok := data["name"].(string); ok {
+		if name == "" {
+			t.SendError("'name' is required")
+			return
+		}
 		fields["name"] = name
 	}
 
