@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"time"
+	"code.google.com/p/go.crypto/bcrypt"
 )
 
 var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
@@ -107,10 +108,24 @@ func createUser(t *Task) {
 		t.SendError("'email' is invalid")
 		return
 	}
-
 	if emailUsed(t.Tx, email) != "" {
 		t.Rw.WriteHeader(http.StatusConflict)
 		return
+	}
+
+	passwdStr, ok := data["password"].(string)
+	if !ok || passwdStr == "" {
+		t.SendError("'password' is required")
+		return
+	}
+	if len(passwdStr) < 8 {
+		t.SendError("'password' is too short")
+		return
+	}
+	passwd := []byte(passwdStr)
+	hash, err := bcrypt.GenerateFromPassword(passwd, bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
 	}
 
 	id, err := NewUUID4()
@@ -119,9 +134,9 @@ func createUser(t *Task) {
 	}
 
 	_, err = t.Tx.Exec(`
-		INSERT INTO "users" ("id", "name", "email", "created")
-		VALUES ($1, $2, $3, NOW())`,
-		id, name, email)
+		INSERT INTO "users" ("id", "name", "email", "created", "password")
+		VALUES ($1, $2, $3, NOW(), $4)`,
+		id, name, email, string(hash))
 
 	if err != nil {
 		panic(err)
@@ -201,6 +216,23 @@ func changeUser(t *Task) {
 			return
 		}
 		fields["email"] = email
+	}
+
+	if passwdStr, ok := data["password"].(string); ok {
+		if passwdStr == "" {
+			t.SendError("'password' is invalid")
+			return
+		}
+		if len(passwdStr) < 8 {
+			t.SendError("'password' is too short")
+			return
+		}
+		passwd := []byte(passwdStr)
+		hash, err := bcrypt.GenerateFromPassword(passwd, bcrypt.DefaultCost)
+		if err != nil {
+			panic(err)
+		}
+		fields["password"] = string(hash)
 	}
 
 	if len(fields) > 0 {
