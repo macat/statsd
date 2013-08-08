@@ -1,33 +1,83 @@
 package main
 
-import "net/http"
+import (
+	"code.google.com/p/go.crypto/bcrypt"
+	"database/sql"
+)
 
 func login(t *Task) {
-	t.Uid = "412d5b90-fd23-11e2-98f5-14dae9e93c91" // TODO
+	data, ok := t.RecvJson().(map[string]interface{})
+	if !ok {
+		t.SendJson(false)
+		return
+	}
+
+	email, uid, ok := "", "", false
+	var passwd, hash []byte
+
+	if email, ok = data["email"].(string); !ok {
+		t.SendJson(false)
+		return
+	}
+
+	if p, ok := data["password"].(string); !ok {
+		t.SendJson(false)
+		return
+	} else {
+		passwd = []byte(p)
+	}
+
+	row := t.Tx.QueryRow(`
+		SELECT "id", "password" FROM "users" 
+		WHERE "email" = $1`,
+		email)
+
+	if err := row.Scan(&uid, &hash); err != nil {
+		if err == sql.ErrNoRows {
+			t.SendJson(false)
+		} else {
+			panic(err)
+		}
+	}
+
+	err := bcrypt.CompareHashAndPassword(hash, passwd)
+	if err == nil {
+		t.Uid = uid
+
+		cost, err := bcrypt.Cost(hash)
+		if err != nil {
+			panic(err)
+		}
+
+		if cost < bcrypt.DefaultCost {
+			hash, err := bcrypt.GenerateFromPassword(passwd, bcrypt.DefaultCost)
+			if err != nil {
+				panic(err)
+			}
+
+			_, err = t.Tx.Exec(`
+				UPDATE "users"
+				SET "password" = $1
+				WHERE "id" = $2`,
+				hash, uid)
+
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+
+	t.SendJson(err == nil)
 }
 
 func logout(t *Task) {
 	t.Uid = ""
-	t.Rw.WriteHeader(http.StatusNoContent)
 }
 
 func whoami(t *Task) {
-	if !ValidUUID(t.Uid) {
-		t.Rw.WriteHeader(http.StatusNotFound)
-		return
+	if !userExists(t.Tx, t.Uid) {
+		t.SendJson(nil)
+	} else {
+		t.SendJson(t.Uid)
 	}
-
-	row := t.Tx.QueryRow(`SELECT COUNT(*) FROM "users" WHERE "id" = $1`, t.Uid)
-	n := 0
-	if err := row.Scan(&n); err != nil {
-		panic(err)
-	}
-
-	if n < 1 {
-		t.Rw.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	t.Rw.Header().Set("Location", "/users/"+t.Uid)
-	t.Rw.WriteHeader(http.StatusFound)
 }

@@ -21,8 +21,14 @@ func (r PrefixRouter) Serve(t *Task) {
 		suffix = "/"
 	}
 
-	if handler, ok := r[prefix]; ok {
+	if len(prefix) > 1 && prefix[1] == '*' {
+		t.Rw.WriteHeader(http.StatusNotFound)
+	} else if handler, ok := r[prefix]; ok {
 		t.Rq.URL.Path = suffix
+		handler.Serve(t)
+	} else if handler, ok := r["*uuid"]; ok && ValidUUID(prefix[1:]) {
+		t.Rq.URL.Path = suffix
+		t.UUID = prefix[1:]
 		handler.Serve(t)
 	} else if handler, ok := r["*"]; ok {
 		handler.Serve(t)

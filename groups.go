@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"time"
 )
@@ -10,10 +11,16 @@ var groupsRouter = &Transactional{PrefixRouter(map[string]Handler{
 		"GET":  HandlerFunc(listGroups),
 		"POST": HandlerFunc(createGroup),
 	}),
-	"*": MethodRouter(map[string]Handler{
-		"GET":    HandlerFunc(getGroup),
-		"PATCH":  HandlerFunc(changeGroup),
-		"DELETE": HandlerFunc(deleteGroup),
+	"*uuid": PrefixRouter(map[string]Handler{
+		"/": MethodRouter(map[string]Handler{
+			"GET":    HandlerFunc(getGroup),
+			"PATCH":  HandlerFunc(changeGroup),
+			"DELETE": HandlerFunc(deleteGroup),
+		}),
+		"/users": MethodRouter(map[string]Handler{
+			"POST":   HandlerFunc(addUserToGroup),
+			"DELETE": HandlerFunc(removeUserFromGroup),
+		}),
 	}),
 })}
 
@@ -71,13 +78,12 @@ func createGroup(t *Task) {
 }
 
 func getGroup(t *Task) {
-	gid := t.Rq.URL.Path[1:]
-	if !ValidUUID(gid) {
-		t.Rw.WriteHeader(http.StatusNotFound)
-		return
-	}
+	rows, err := t.Tx.Query(`
+		SELECT "id", "name", "created"
+		FROM "groups"
+		WHERE "id" = $1`,
+		t.UUID)
 
-	rows, err := t.Tx.Query(`SELECT * FROM "groups" WHERE "id" = $1`, gid)
 	if err != nil {
 		panic(err)
 	}
@@ -101,8 +107,8 @@ func getGroup(t *Task) {
 }
 
 func changeGroup(t *Task) {
-	gid := groupExists(t)
-	if len(gid) == 0 {
+	if !groupExists(t.Tx, t.UUID) {
+		t.Rw.WriteHeader(http.StatusNotFound)
 		return
 	}
 
@@ -123,47 +129,128 @@ func changeGroup(t *Task) {
 	}
 
 	if len(fields) > 0 {
-		set, vals := setClause(fields, gid)
+		set, vals := setClause(fields, t.UUID)
 		_, err := t.Tx.Exec(`UPDATE "groups" `+set+` WHERE "id" = $1`, vals...)
 
 		if err != nil {
 			panic(err)
 		}
 	}
-
-	t.Rw.WriteHeader(http.StatusNoContent)
 }
 
 func deleteGroup(t *Task) {
-	gid := groupExists(t)
-	if len(gid) == 0 {
-		return
-	}
-
-	_, err := t.Tx.Exec(`DELETE FROM "groups" WHERE "id" = $1`, gid)
+	result, err := t.Tx.Exec(`DELETE FROM "groups" WHERE "id" = $1`, t.UUID)
 	if err != nil {
 		panic(err)
 	}
 
-	t.Rw.WriteHeader(http.StatusNoContent)
+	if n, err := result.RowsAffected(); err != nil {
+		panic(err)
+	} else if n == 0 {
+		t.Rw.WriteHeader(http.StatusNotFound)
+		return
+	}
 }
 
-func groupExists(t *Task) string {
-	gid, n := t.Rq.URL.Path[1:], 0
-	if !ValidUUID(gid) {
+func addUserToGroup(t *Task) {
+	if !groupExists(t.Tx, t.UUID) {
 		t.Rw.WriteHeader(http.StatusNotFound)
-		return ""
+		return
 	}
 
-	row := t.Tx.QueryRow(`SELECT COUNT(*) FROM "groups" WHERE "id" = $1`, gid)
+	uid, ok := t.RecvJson().(string)
+	if !ok || !userExists(t.Tx, uid) {
+		t.SendError("Invalid user ID")
+		return
+	}
+
+	if userInGroup(t.Tx, uid, t.UUID) {
+		return
+	}
+
+	_, err := t.Tx.Exec(
+		`INSERT INTO "users_to_groups" ("user_id", "group_id")
+		VALUES ($1, $2)`,
+		uid, t.UUID);
+	if err != nil {
+		panic(err)
+	}
+}
+
+func removeUserFromGroup(t *Task) {
+	if !groupExists(t.Tx, t.UUID) {
+		t.Rw.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	uid, ok := t.RecvJson().(string)
+	if !ok || !userExists(t.Tx, uid) {
+		t.SendError("Invalid user ID")
+		return
+	}
+
+	_, err := t.Tx.Exec(`
+		DELETE FROM "users_to_groups"
+		WHERE user_id = $1 AND group_id = $2`,
+		uid, t.UUID)
+
+	if err != nil {
+		panic(err)
+	}
+}
+
+func groupExists(tx *sql.Tx, gid string) bool {
+	if !ValidUUID(gid) {
+		return false
+	}
+
+	row := tx.QueryRow(`SELECT COUNT(*) FROM "groups" WHERE "id" = $1`, gid)
+	n := 0
 	if err := row.Scan(&n); err != nil {
 		panic(err)
 	}
 
-	if n < 1 {
-		t.Rw.WriteHeader(http.StatusNotFound)
-		return ""
+	return n > 0
+}
+
+func userInGroup(tx *sql.Tx, uid, gid string) bool {
+	if !ValidUUID(uid) || !ValidUUID(gid) {
+		return false
 	}
 
-	return gid
+	row := tx.QueryRow(`
+		SELECT COUNT(*) FROM "users_to_groups"
+		WHERE "user_id" = $1 AND "group_id" = $2`, uid, gid)
+
+	n := 0
+	if err := row.Scan(&n); err != nil {
+		panic(err)
+	}
+
+	return n > 0
+}
+
+func groupsOfUser(tx *sql.Tx, uid string) []string {
+	if !ValidUUID(uid) {
+		return nil
+	}
+
+	rows, err := tx.Query(`
+		SELECT "group_id" FROM "users_to_groups"
+		WHERE "user_id" = $1`, uid)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	groups := make([]string, 0)
+	for rows.Next() {
+		group := ""
+		if err := rows.Scan(&group); err != nil {
+			panic(err)
+		}
+		groups = append(groups, group)
+	}
+
+	return groups
 }

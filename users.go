@@ -1,9 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"time"
-	"database/sql"
 )
 
 var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
@@ -11,32 +11,75 @@ var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 		"GET":  HandlerFunc(listUsers),
 		"POST": HandlerFunc(createUser),
 	}),
-	"*": MethodRouter(map[string]Handler{
-		"GET":    HandlerFunc(getUser),
-		"PATCH":  HandlerFunc(changeUser),
-		"DELETE": HandlerFunc(deleteUser),
+	"*uuid": PrefixRouter(map[string]Handler{
+		"/": MethodRouter(map[string]Handler{
+			"GET":    HandlerFunc(getUser),
+			"PATCH":  HandlerFunc(changeUser),
+			"DELETE": HandlerFunc(deleteUser),
+		}),
 	}),
 })}
 
 func listUsers(t *Task) {
-	rows, err := t.Tx.Query(`SELECT "id", "name", "email", "created" FROM "users"`)
+	gid, params := t.Rq.URL.Query().Get("group"), []interface{}{}
+	whereClause1, whereClause2 := "", ""
+	if len(gid) > 0 {
+		if !ValidUUID(gid) {
+			t.SendJson([]int{})
+			return
+		}
+		params = append(params, gid)
+		whereClause1 = `
+			WHERE "id" IN (
+				SELECT "user_id"
+				FROM "users_to_groups"
+				WHERE "group_id" = $1
+			)`
+		whereClause2 = `WHERE "group_id" = $1`
+	}
+
+	rows, err := t.Tx.Query(`
+		SELECT "id", "name", "email", "created"
+		FROM "users" `+whereClause1, params...)
+
 	if err != nil {
 		panic(err)
 	}
 	defer rows.Close()
 
-	id, name, email, created := "", "", "", time.Time{}
-	users := make([]map[string]string, 0)
+	uid, name, email, created := "", "", "", time.Time{}
+	users := make([]map[string]interface{}, 0)
+	uids2indexes := make(map[string]int, 0)
 	for rows.Next() {
-		if err := rows.Scan(&id, &name, &email, &created); err != nil {
+		if err := rows.Scan(&uid, &name, &email, &created); err != nil {
 			panic(err)
 		}
-		users = append(users, map[string]string{
-			"id":      id,
+		uids2indexes[uid] = len(users)
+		users = append(users, map[string]interface{}{
+			"id":      uid,
 			"name":    name,
 			"email":   email,
 			"created": created.Format("2006-01-02 15:04:05"),
+			"groups":  make([]string, 0),
 		})
+	}
+
+	rows, err = t.Tx.Query(`
+		SELECT "user_id", "group_id"
+		FROM "users_to_groups"`+whereClause2,
+		params...)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	uid, gid = "", ""
+	for rows.Next() {
+		if err := rows.Scan(&uid, &gid); err != nil {
+			panic(err)
+		}
+		index := uids2indexes[uid]
+		users[index]["groups"] = append(users[index]["groups"].([]string), gid)
 	}
 
 	t.SendJson(users)
@@ -55,13 +98,17 @@ func createUser(t *Task) {
 		return
 	}
 
-	email, ok := data["email"].(string) // TODO: validate email
+	email, ok := data["email"].(string)
 	if !ok || email == "" {
 		t.SendError("'email' is required")
 		return
 	}
+	if !emailRegexp.MatchString(email) {
+		t.SendError("'email' is invalid")
+		return
+	}
 
-	if emailUsed(t, email) != "" {
+	if emailUsed(t.Tx, email) != "" {
 		t.Rw.WriteHeader(http.StatusConflict)
 		return
 	}
@@ -85,13 +132,12 @@ func createUser(t *Task) {
 }
 
 func getUser(t *Task) {
-	uid := t.Rq.URL.Path[1:]
-	if !ValidUUID(uid) {
-		t.Rw.WriteHeader(http.StatusNotFound)
-		return
-	}
+	rows, err := t.Tx.Query(`
+		SELECT "id", "name", "email", "created"
+		FROM "users"
+		WHERE "id" = $1`,
+		t.UUID)
 
-	rows, err := t.Tx.Query(`SELECT * FROM "users" WHERE "id" = $1`, uid)
 	if err != nil {
 		panic(err)
 	}
@@ -106,18 +152,22 @@ func getUser(t *Task) {
 	if err := rows.Scan(&id, &name, &email, &created); err != nil {
 		panic(err)
 	}
+	rows.Close()
 
-	t.SendJson(map[string]string{
+	user := map[string]interface{}{
 		"id":      id,
 		"name":    name,
 		"email":   email,
 		"created": created.Format("2006-01-02 15:04:06"),
-	})
+		"groups":  groupsOfUser(t.Tx, id),
+	}
+
+	t.SendJson(user)
 }
 
 func changeUser(t *Task) {
-	uid := userExists(t)
-	if len(uid) == 0 {
+	if !userExists(t.Tx, t.UUID) {
+		t.Rw.WriteHeader(http.StatusNotFound)
 		return
 	}
 
@@ -137,12 +187,16 @@ func changeUser(t *Task) {
 		fields["name"] = name
 	}
 
-	if email, ok := data["email"].(string); ok { // TODO: validate email
+	if email, ok := data["email"].(string); ok {
 		if email == "" {
 			t.SendError("'email' is required")
 			return
 		}
-		if usedBy := emailUsed(t, email); usedBy != "" && usedBy != uid {
+		if !emailRegexp.MatchString(email) {
+			t.SendError("'email' is invalid")
+			return
+		}
+		if usedBy := emailUsed(t.Tx, email); usedBy != "" && usedBy != t.UUID {
 			t.Rw.WriteHeader(http.StatusConflict)
 			return
 		}
@@ -150,53 +204,45 @@ func changeUser(t *Task) {
 	}
 
 	if len(fields) > 0 {
-		set, vals := setClause(fields, uid)
+		set, vals := setClause(fields, t.UUID)
 		_, err := t.Tx.Exec(`UPDATE "users" `+set+` WHERE "id" = $1`, vals...)
 
 		if err != nil {
 			panic(err)
 		}
 	}
-
-	t.Rw.WriteHeader(http.StatusNoContent)
 }
 
 func deleteUser(t *Task) {
-	uid := userExists(t)
-	if len(uid) == 0 {
-		return
-	}
-
-	_, err := t.Tx.Exec(`DELETE FROM "users" WHERE "id" = $1`, uid)
+	result, err := t.Tx.Exec(`DELETE FROM "users" WHERE "id" = $1`, t.UUID)
 	if err != nil {
 		panic(err)
 	}
 
-	t.Rw.WriteHeader(http.StatusNoContent)
+	if n, err := result.RowsAffected(); err != nil {
+		panic(err)
+	} else if n == 0 {
+		t.Rw.WriteHeader(http.StatusNotFound)
+		return
+	}
 }
 
-func userExists(t *Task) string {
-	uid, n := t.Rq.URL.Path[1:], 0
+func userExists(tx *sql.Tx, uid string) bool {
 	if !ValidUUID(uid) {
-		t.Rw.WriteHeader(http.StatusNotFound)
-		return ""
+		return false
 	}
 
-	row := t.Tx.QueryRow(`SELECT COUNT(*) FROM "users" WHERE "id" = $1`, uid)
+	row := tx.QueryRow(`SELECT COUNT(*) FROM "users" WHERE "id" = $1`, uid)
+	n := 0
 	if err := row.Scan(&n); err != nil {
 		panic(err)
 	}
 
-	if n < 1 {
-		t.Rw.WriteHeader(http.StatusNotFound)
-		return ""
-	}
-
-	return uid
+	return n > 0
 }
 
-func emailUsed(t *Task, email string) string {
-	row := t.Tx.QueryRow(`SELECT "id" FROM "users" WHERE "email" = $1`, email)
+func emailUsed(tx *sql.Tx, email string) string {
+	row := tx.QueryRow(`SELECT "id" FROM "users" WHERE "email" = $1`, email)
 	uid := ""
 	if err := row.Scan(&uid); err != nil {
 		if err != sql.ErrNoRows {
