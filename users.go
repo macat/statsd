@@ -1,10 +1,10 @@
 package main
 
 import (
+	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
 	"net/http"
 	"time"
-	"code.google.com/p/go.crypto/bcrypt"
 )
 
 var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
@@ -22,21 +22,18 @@ var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 })}
 
 func listUsers(t *Task) {
-	gid, params := t.Rq.URL.Query().Get("group"), []interface{}{}
-	whereClause1, whereClause2 := "", ""
+	whereClause1, whereClause2, params := "", "", []interface{}{}
+
+	gid := t.Rq.URL.Query().Get("group")
 	if len(gid) > 0 {
-		if !ValidUUID(gid) {
+		if !groupExists(t.Tx, gid) {
 			t.SendJson([]int{})
 			return
 		}
 		params = append(params, gid)
-		whereClause1 = `
-			WHERE "id" IN (
-				SELECT "user_id"
-				FROM "users_to_groups"
-				WHERE "group_id" = $1
-			)`
-		whereClause2 = `WHERE "group_id" = $1`
+		subq := `SELECT "user_id" FROM "users_to_groups" WHERE "group_id" = $1`
+		whereClause1 = `WHERE "id" IN (` + subq + `)`
+		whereClause2 = `WHERE "user_id" IN (` + subq + `)`
 	}
 
 	rows, err := t.Tx.Query(`
@@ -57,11 +54,12 @@ func listUsers(t *Task) {
 		}
 		uids2indexes[uid] = len(users)
 		users = append(users, map[string]interface{}{
-			"id":      uid,
-			"name":    name,
-			"email":   email,
-			"created": created.Format("2006-01-02 15:04:05"),
-			"groups":  make([]string, 0),
+			"id":          uid,
+			"name":        name,
+			"email":       email,
+			"created":     created.Format("2006-01-02 15:04:05"),
+			"groups":      make([]string, 0),
+			"permissions": make([]string, 0),
 		})
 	}
 
@@ -79,8 +77,27 @@ func listUsers(t *Task) {
 		if err := rows.Scan(&uid, &gid); err != nil {
 			panic(err)
 		}
-		index := uids2indexes[uid]
-		users[index]["groups"] = append(users[index]["groups"].([]string), gid)
+		user := users[uids2indexes[uid]]
+		user["groups"] = append(user["groups"].([]string), gid)
+	}
+
+	rows, err = t.Tx.Query(`
+		SELECT DISTINCT "user_id", UNNEST("permissions")
+		FROM "groups"
+		JOIN "users_to_groups" ON "id" = "group_id"`+whereClause2,
+		params...)
+	if err != nil {
+		panic(nil)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		perm := ""
+		if err := rows.Scan(&uid, &perm); err != nil {
+			panic(err)
+		}
+		user := users[uids2indexes[uid]]
+		user["permissions"] = append(user["permissions"].([]string), perm)
 	}
 
 	t.SendJson(users)
@@ -170,11 +187,12 @@ func getUser(t *Task) {
 	rows.Close()
 
 	user := map[string]interface{}{
-		"id":      id,
-		"name":    name,
-		"email":   email,
-		"created": created.Format("2006-01-02 15:04:06"),
-		"groups":  groupsOfUser(t.Tx, id),
+		"id":          id,
+		"name":        name,
+		"email":       email,
+		"created":     created.Format("2006-01-02 15:04:06"),
+		"groups":      groupsOfUser(t.Tx, id),
+		"permissions": userPermissions(t.Tx, id),
 	}
 
 	t.SendJson(user)

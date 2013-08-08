@@ -32,16 +32,36 @@ func listGroups(t *Task) {
 	defer rows.Close()
 
 	id, name, created := "", "", time.Time{}
-	groups := make([]map[string]string, 0)
+	groups := make([]map[string]interface{}, 0)
+	gids2indexes := make(map[string]int)
 	for rows.Next() {
 		if err := rows.Scan(&id, &name, &created); err != nil {
 			panic(err)
 		}
-		groups = append(groups, map[string]string{
-			"id":      id,
-			"name":    name,
-			"created": created.Format("2006-01-02 15:04:05"),
+		gids2indexes[id] = len(groups)
+		groups = append(groups, map[string]interface{}{
+			"id":          id,
+			"name":        name,
+			"created":     created.Format("2006-01-02 15:04:05"),
+			"permissions": make([]string, 0),
 		})
+	}
+
+	rows, err = t.Tx.Query(`
+		SELECT "id", UNNEST("permissions")
+		FROM "groups"`)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		perm := ""
+		if err := rows.Scan(&id, &perm); err != nil {
+			panic(err)
+		}
+		group := groups[gids2indexes[id]]
+		group["permissions"] = append(group["permissions"].([]string), perm)
 	}
 
 	t.SendJson(groups)
@@ -98,12 +118,32 @@ func getGroup(t *Task) {
 	if err := rows.Scan(&id, &name, &created); err != nil {
 		panic(err)
 	}
+	rows.Close()
 
-	t.SendJson(map[string]string{
-		"id":      id,
-		"name":    name,
-		"created": created.Format("2006-01-02 15:04:06"),
-	})
+	group := map[string]interface{}{
+		"id":          id,
+		"name":        name,
+		"created":     created.Format("2006-01-02 15:04:06"),
+		"permissions": make([]string, 0),
+	}
+
+	rows, err = t.Tx.Query(`
+		SELECT UNNEST("permissions") FROM "groups"
+		WHERE "id" = $1`, id)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		perm := ""
+		if err := rows.Scan(&perm); err != nil {
+			panic(err)
+		}
+		group["permissions"] = append(group["permissions"].([]string), perm)
+	}
+
+	t.SendJson(group)
 }
 
 func changeGroup(t *Task) {
@@ -171,7 +211,7 @@ func addUserToGroup(t *Task) {
 	_, err := t.Tx.Exec(
 		`INSERT INTO "users_to_groups" ("user_id", "group_id")
 		VALUES ($1, $2)`,
-		uid, t.UUID);
+		uid, t.UUID)
 	if err != nil {
 		panic(err)
 	}
@@ -197,6 +237,14 @@ func removeUserFromGroup(t *Task) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func addPermission(t *Task) {
+	// TODO
+}
+
+func removePermission(t *Task) {
+	// TODO
 }
 
 func groupExists(tx *sql.Tx, gid string) bool {
