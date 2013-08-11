@@ -20,6 +20,11 @@ var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 })}
 
 func listUsers(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "GET", "users", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	whereClause1, whereClause2, params := "", "", []interface{}{}
 
 	gid := t.Rq.URL.Query().Get("group")
@@ -119,6 +124,11 @@ func listUsers(t *Task) {
 }
 
 func createUser(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "POST", "users", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
 		t.Rw.WriteHeader(http.StatusBadRequest)
@@ -179,6 +189,11 @@ func createUser(t *Task) {
 }
 
 func getUser(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "GET", "user", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	rows, err := t.Tx.Query(`
 		SELECT "id", "name", "email", "created"
 		FROM "users"
@@ -253,6 +268,11 @@ func getUser(t *Task) {
 }
 
 func changeUser(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "PATCH", "user", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	if !userExists(t.Tx, t.UUID) {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
@@ -318,6 +338,11 @@ func changeUser(t *Task) {
 }
 
 func deleteUser(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "DELETE", "user", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	result, err := t.Tx.Exec(`DELETE FROM "users" WHERE "id" = $1`, t.UUID)
 	if err != nil {
 		panic(err)

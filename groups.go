@@ -25,6 +25,11 @@ var groupsRouter = &Transactional{PrefixRouter(map[string]Handler{
 })}
 
 func listGroups(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "GET", "groups", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	rows, err := t.Tx.Query(`SELECT "id", "name", "created" FROM "groups"`)
 	if err != nil {
 		panic(err)
@@ -85,6 +90,11 @@ func listGroups(t *Task) {
 }
 
 func createGroup(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "POST", "groups", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
 		t.Rw.WriteHeader(http.StatusBadRequest)
@@ -115,6 +125,11 @@ func createGroup(t *Task) {
 }
 
 func getGroup(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "GET", "group", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	rows, err := t.Tx.Query(`
 		SELECT "id", "name", "created"
 		FROM "groups"
@@ -183,6 +198,11 @@ func getGroup(t *Task) {
 }
 
 func changeGroup(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "PATCH", "group", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	if !groupExists(t.Tx, t.UUID) {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
@@ -215,6 +235,11 @@ func changeGroup(t *Task) {
 }
 
 func deleteGroup(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "DELETE", "group", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	result, err := t.Tx.Exec(`DELETE FROM "groups" WHERE "id" = $1`, t.UUID)
 	if err != nil {
 		panic(err)
@@ -237,6 +262,11 @@ func deleteGroup(t *Task) {
 }
 
 func addUserToGroup(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "POST", "group_members", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	if !groupExists(t.Tx, t.UUID) {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
@@ -262,6 +292,11 @@ func addUserToGroup(t *Task) {
 }
 
 func removeUserFromGroup(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "DELETE", "group_members", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	if !groupExists(t.Tx, t.UUID) {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return

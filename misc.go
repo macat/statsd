@@ -21,7 +21,7 @@ func setClause(x map[string]interface{}, p ...interface{}) (string, []interface{
 }
 
 func insertClause(x map[string]interface{}, p ...interface{}) (string, []interface{}) {
-	str1, str2, values := "(", ") VALUES ("
+	str1, str2 := "(", ") VALUES ("
 	n, values := 0, make([]interface{}, len(x)+len(p))
 
 	copy(values, p)

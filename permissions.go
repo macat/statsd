@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 )
@@ -11,6 +12,11 @@ var permissionsRouter = &Transactional{MethodRouter(map[string]Handler{
 })}
 
 func grantPermission(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "POST", "permissions", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	data, ok := t.RecvJson().(map[string]interface{})
 
 	if !ok {
@@ -37,31 +43,8 @@ func grantPermission(t *Task) {
 	}
 
 	objId, ok := data["id"].(string)
-	if !ok {
+	if !ok || objId != "" && !ValidUUID(objId) {
 		t.SendError("Invalid 'id'")
-		return
-	}
-
-	switch objType {
-	case "user":
-		if objId != "" && !userExists(t.Tx, objId) {
-			t.SendError("No such user")
-			return
-		}
-	case "group":
-		fallthrough
-	case "group_members":
-		if objId != "" && !userExists(t.Tx, objId) {
-			t.SendError("No such group")
-			return
-		}
-	case "":
-		if objId != "" || method != "" {
-			t.SendError("Empty 'type' requires empty 'method' and 'id'")
-			return
-		}
-	default:
-		t.SendError("No such type")
 		return
 	}
 
@@ -83,6 +66,11 @@ func grantPermission(t *Task) {
 }
 
 func revokePermission(t *Task) {
+	if !hasPermission(t.Tx, t.Uid, "DELETE", "permissions", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	data, ok := t.RecvJson().(map[string]interface{})
 
 	if !ok {
@@ -138,4 +126,42 @@ func revokePermission(t *Task) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func hasPermission(tx *sql.Tx, uid, method, objType, objId string) bool {
+	if !ValidUUID(uid) {
+		return false
+	}
+
+	objIdQ, params := "", []interface{}{uid, method, objType}
+	if objId != "" {
+		if ValidUUID(objId) {
+			objIdQ = `"object_id" = $4 OR`
+			params = append(params, objId)
+		} else {
+			return false
+		}
+	}
+	row := tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM "permissions"
+		WHERE
+			"group_id" IN (
+				SELECT "group_id"
+				FROM "users_to_groups"
+				WHERE user_id = $1
+			) AND
+			("method" = $2 OR "method" IS NULL) AND
+			("object_type" = $3 OR "object_type" IS NULL) AND
+			(`+objIdQ+` "object_id" IS NULL)
+		`,
+		params...)
+
+	n := 0
+	err := row.Scan(&n)
+	if err != nil {
+		return false
+	}
+
+	return n > 0
 }
