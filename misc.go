@@ -1,6 +1,9 @@
 package main
 
-import "strconv"
+import (
+	"regexp"
+	"strconv"
+)
 
 func setClause(x map[string]interface{}, p ...interface{}) (string, []interface{}) {
 	n, str, values := 0, "SET ", make([]interface{}, len(x)+len(p))
@@ -16,3 +19,5 @@ func setClause(x map[string]interface{}, p ...interface{}) (string, []interface{
 
 	return str, values
 }
+
+var emailRegexp = regexp.MustCompile(".+@.+\\..")

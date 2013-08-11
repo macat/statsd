@@ -10,6 +10,10 @@ type PrefixRouter map[string]Handler
 func (r PrefixRouter) Serve(t *Task) {
 	prefix, suffix := t.Rq.URL.Path, ""
 
+	for strings.Contains(prefix, "//") {
+		prefix = strings.Replace(prefix, "//", "/", -1)
+	}
+
 	if len(prefix) == 0 || prefix[0] != '/' {
 		prefix = "/" + prefix
 	}
@@ -21,8 +25,14 @@ func (r PrefixRouter) Serve(t *Task) {
 		suffix = "/"
 	}
 
-	if handler, ok := r[prefix]; ok {
+	if len(prefix) > 1 && prefix[1] == '*' {
+		t.Rw.WriteHeader(http.StatusNotFound)
+	} else if handler, ok := r[prefix]; ok {
 		t.Rq.URL.Path = suffix
+		handler.Serve(t)
+	} else if handler, ok := r["*uuid"]; ok && ValidUUID(prefix[1:]) {
+		t.Rq.URL.Path = suffix
+		t.UUID = prefix[1:]
 		handler.Serve(t)
 	} else if handler, ok := r["*"]; ok {
 		handler.Serve(t)
@@ -34,7 +44,9 @@ func (r PrefixRouter) Serve(t *Task) {
 type MethodRouter map[string]Handler
 
 func (r MethodRouter) Serve(t *Task) {
-	if handler, ok := r[t.Rq.Method]; ok {
+	if t.Rq.URL.Path != "/" {
+		t.Rw.WriteHeader(http.StatusNotFound)
+	} else if handler, ok := r[t.Rq.Method]; ok {
 		handler.Serve(t)
 	} else {
 		verbs, i := make([]string, len(r)), 0
