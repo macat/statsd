@@ -311,6 +311,19 @@ func changeUser(t *Task) {
 	}
 
 	if passwdStr, ok := data["password"].(string); ok {
+		row := t.Tx.QueryRow(`SELECT "password" FROM "users"
+			WHERE "id" = $1`, t.UUID)
+		var oldHash []byte
+		if err := row.Scan(&oldHash); err != nil {
+			panic(err)
+		}
+		oldPasswdStr, ok := data["oldPassword"].(string)
+		oldPasswd := []byte(oldPasswdStr)
+		if !ok || bcrypt.CompareHashAndPassword(oldHash, oldPasswd) != nil {
+			t.SendError("'oldPassword' is invalid")
+			return
+		}
+
 		if passwdStr == "" {
 			t.SendError("'password' is invalid")
 			return
