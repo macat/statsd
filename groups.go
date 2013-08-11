@@ -43,25 +43,42 @@ func listGroups(t *Task) {
 			"id":          id,
 			"name":        name,
 			"created":     created.Format("2006-01-02 15:04:05"),
-			"permissions": make([]string, 0),
+			"permissions": make([]map[string]string, 0),
 		})
 	}
 
 	rows, err = t.Tx.Query(`
-		SELECT "id", UNNEST("permissions")
-		FROM "groups"`)
+		SELECT "group_id", "method", "object_type", "object_id"
+		FROM "permissions"`)
 	if err != nil {
 		panic(err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		perm := ""
-		if err := rows.Scan(&id, &perm); err != nil {
+		var method, objType, objId []byte
+		if err := rows.Scan(&id, &method, &objType, &objId); err != nil {
 			panic(err)
 		}
 		group := groups[gids2indexes[id]]
-		group["permissions"] = append(group["permissions"].([]string), perm)
+		perm := map[string]string{}
+		if method != nil {
+			perm["method"] = string(method)
+		} else {
+			perm["method"] = ""
+		}
+		if objType != nil {
+			perm["type"] = string(objType)
+		} else {
+			perm["type"] = ""
+		}
+		if objId != nil {
+			perm["id"] = string(objId)
+		} else {
+			perm["id"] = ""
+		}
+		group["permissions"] = append(group["permissions"].([]map[string]string),
+			perm)
 	}
 
 	t.SendJson(groups)
@@ -124,23 +141,42 @@ func getGroup(t *Task) {
 		"id":          id,
 		"name":        name,
 		"created":     created.Format("2006-01-02 15:04:06"),
-		"permissions": make([]string, 0),
+		"permissions": make([]map[string]string, 0),
 	}
 
 	rows, err = t.Tx.Query(`
-		SELECT UNNEST("permissions") FROM "groups"
-		WHERE "id" = $1`, id)
+		SELECT "method", "object_type", "object_id"
+		FROM "permissions"
+		WHERE "group_id" = $1`,
+		id)
 	if err != nil {
 		panic(err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		perm := ""
-		if err := rows.Scan(&perm); err != nil {
+		var method, objType, objId []byte
+		if err := rows.Scan(&method, &objType, &objId); err != nil {
 			panic(err)
 		}
-		group["permissions"] = append(group["permissions"].([]string), perm)
+		perm := map[string]string{}
+		if method != nil {
+			perm["method"] = string(method)
+		} else {
+			perm["method"] = ""
+		}
+		if objType != nil {
+			perm["type"] = string(objType)
+		} else {
+			perm["type"] = ""
+		}
+		if objId != nil {
+			perm["id"] = string(objId)
+		} else {
+			perm["id"] = ""
+		}
+		group["permissions"] = append(group["permissions"].([]map[string]string),
+			perm)
 	}
 
 	t.SendJson(group)
@@ -190,6 +226,14 @@ func deleteGroup(t *Task) {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
 	}
+
+	_, err = t.Tx.Exec(`
+		DELETE FROM "permissions"
+		WHERE "object_type" = 'group' AND "object_id" = $1`,
+		t.UUID)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func addUserToGroup(t *Task) {
@@ -237,14 +281,6 @@ func removeUserFromGroup(t *Task) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func addPermission(t *Task) {
-	// TODO
-}
-
-func removePermission(t *Task) {
-	// TODO
 }
 
 func groupExists(tx *sql.Tx, gid string) bool {

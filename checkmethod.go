@@ -8,7 +8,10 @@ type CheckMethod struct {
 }
 
 func (h *CheckMethod) Serve(t *Task) {
-	if t.Rq.Method != h.Method {
+	if t.Rq.URL.Path != "/" {
+		t.Rw.WriteHeader(http.StatusNotFound)
+		return
+	} else if t.Rq.Method != h.Method {
 		t.Rw.Header().Set("Allow", h.Method)
 		t.Rw.WriteHeader(http.StatusMethodNotAllowed)
 		return

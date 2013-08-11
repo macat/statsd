@@ -12,12 +12,10 @@ var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 		"GET":  HandlerFunc(listUsers),
 		"POST": HandlerFunc(createUser),
 	}),
-	"*uuid": PrefixRouter(map[string]Handler{
-		"/": MethodRouter(map[string]Handler{
-			"GET":    HandlerFunc(getUser),
-			"PATCH":  HandlerFunc(changeUser),
-			"DELETE": HandlerFunc(deleteUser),
-		}),
+	"*uuid": MethodRouter(map[string]Handler{
+		"GET":    HandlerFunc(getUser),
+		"PATCH":  HandlerFunc(changeUser),
+		"DELETE": HandlerFunc(deleteUser),
 	}),
 })}
 
@@ -59,7 +57,7 @@ func listUsers(t *Task) {
 			"email":       email,
 			"created":     created.Format("2006-01-02 15:04:05"),
 			"groups":      make([]string, 0),
-			"permissions": make([]string, 0),
+			"permissions": make([]map[string]string, 0),
 		})
 	}
 
@@ -82,22 +80,39 @@ func listUsers(t *Task) {
 	}
 
 	rows, err = t.Tx.Query(`
-		SELECT DISTINCT "user_id", UNNEST("permissions")
-		FROM "groups"
-		JOIN "users_to_groups" ON "id" = "group_id"`+whereClause2,
-		params...)
+		SELECT "user_id", "method", "object_type", "object_id"
+		FROM "permissions"
+		JOIN "users_to_groups" USING ("group_id")`+
+		whereClause2)
 	if err != nil {
-		panic(nil)
+		panic(err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		perm := ""
-		if err := rows.Scan(&uid, &perm); err != nil {
+		var method, objType, objId []byte
+		if err := rows.Scan(&uid, &method, &objType, &objId); err != nil {
 			panic(err)
 		}
 		user := users[uids2indexes[uid]]
-		user["permissions"] = append(user["permissions"].([]string), perm)
+		perm := map[string]string{}
+		if method != nil {
+			perm["method"] = string(method)
+		} else {
+			perm["method"] = ""
+		}
+		if objType != nil {
+			perm["type"] = string(objType)
+		} else {
+			perm["type"] = ""
+		}
+		if objId != nil {
+			perm["id"] = string(objId)
+		} else {
+			perm["id"] = ""
+		}
+		user["permissions"] = append(user["permissions"].([]map[string]string),
+			perm)
 	}
 
 	t.SendJson(users)
@@ -192,7 +207,46 @@ func getUser(t *Task) {
 		"email":       email,
 		"created":     created.Format("2006-01-02 15:04:06"),
 		"groups":      groupsOfUser(t.Tx, id),
-		"permissions": userPermissions(t.Tx, id),
+		"permissions": make([]map[string]string, 0),
+	}
+
+	rows, err = t.Tx.Query(`
+		SELECT "method", "object_type", "object_id"
+		FROM "permissions"
+		WHERE "group_id" IN (
+			SELECT "group_id"
+			FROM "users_to_groups"
+			WHERE "user_id" = $1
+		)`,
+		id)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var method, objType, objId []byte
+		if err := rows.Scan(&method, &objType, &objId); err != nil {
+			panic(err)
+		}
+		perm := map[string]string{}
+		if method != nil {
+			perm["method"] = string(method)
+		} else {
+			perm["method"] = ""
+		}
+		if objType != nil {
+			perm["type"] = string(objType)
+		} else {
+			perm["type"] = ""
+		}
+		if objId != nil {
+			perm["id"] = string(objId)
+		} else {
+			perm["id"] = ""
+		}
+		user["permissions"] = append(user["permissions"].([]map[string]string),
+			perm)
 	}
 
 	t.SendJson(user)
@@ -274,6 +328,14 @@ func deleteUser(t *Task) {
 	} else if n == 0 {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
+	}
+
+	_, err = t.Tx.Exec(`
+		DELETE FROM "permissions"
+		WHERE "object_type" = 'user' AND "object_id" = $1`,
+		t.UUID)
+	if err != nil {
+		panic(err)
 	}
 }
 
