@@ -82,7 +82,7 @@ func listUsers(t *Task) {
 	rows, err = t.Tx.Query(`
 		SELECT "user_id", "method", "object_type", "object_id"
 		FROM "permissions"
-		JOIN "users_to_groups" USING ("group_id")`+
+		JOIN "users_to_groups" USING ("group_id")` +
 		whereClause2)
 	if err != nil {
 		panic(err)
