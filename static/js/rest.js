@@ -24,3 +24,5 @@ function rest(method, url, callback, data) {
 	}
 
 }
+
+rest('POST', '/login', null, {email:"korandi.z@gmail.com", password:"password"});

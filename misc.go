@@ -39,3 +39,5 @@ func insertClause(x map[string]interface{}, p ...interface{}) (string, []interfa
 }
 
 var emailRegexp = regexp.MustCompile(".+@.+\\..")
+var urlizerRegexp = regexp.MustCompile("[^a-zA-Z0-9-]+")
+var slugRegexp = regexp.MustCompile("^[a-zA-Z0-9-]$")
