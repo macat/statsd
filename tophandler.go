@@ -8,4 +8,5 @@ var topHandler = NewSession(PrefixRouter(map[string]Handler{
 	"/logout":      &CheckMethod{"POST", HandlerFunc(logout)},
 	"/whoami":      &CheckMethod{"GET", &Transactional{HandlerFunc(whoami)}},
 	"/permissions": permissionsRouter,
+	"/dashboards":  dashboardsRouter,
 }))
