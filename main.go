@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"strings"
+	"github.com/joho/godotenv"
 	"database/sql"
 	_ "github.com/lib/pq"
 	"log"
@@ -9,8 +12,6 @@ import (
 
 const (
 	addr     = ":9000"
-	dbDriver = "postgres"
-	dsName   = "sslmode=disable"
 	appRoot  = "/"
 )
 
@@ -20,6 +21,16 @@ var (
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	dbDriver := os.Getenv("DB_DRIVER")
+	dbSetup := []string{"user=" + os.Getenv("DB_USER"),
+											"dbname=" + os.Getenv("DB_NAME"),
+											"sslmode=" + os.Getenv("DB_SSLMODE")}
+	dsName := strings.Join(dbSetup, " ")
 	if d, err := sql.Open(dbDriver, dsName); err != nil {
 		log.Fatalln(err)
 	} else {

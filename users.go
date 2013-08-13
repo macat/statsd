@@ -11,6 +11,7 @@ var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listUsers),
 		"POST": HandlerFunc(createUser),
+		"OPTIONS": HandlerFunc(optionsUser),
 	}),
 	"*uuid": MethodRouter(map[string]Handler{
 		"GET":    HandlerFunc(getUser),
@@ -18,6 +19,12 @@ var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 		"DELETE": HandlerFunc(deleteUser),
 	}),
 })}
+
+func optionsUser(t *Task) {
+	t.Rw.Header().Set("Access-Control-Allow-Origin", "*")
+	t.Rw.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+	t.Rw.Header().Set("Access-Control-Allow-Headers", "accept, origin, x-requested-with")
+}
 
 func listUsers(t *Task) {
 	if !hasPermission(t.Tx, t.Uid, "GET", "users", "") {
@@ -38,6 +45,7 @@ func listUsers(t *Task) {
 		whereClause1 = `WHERE "id" IN (` + subq + `)`
 		whereClause2 = `WHERE "user_id" IN (` + subq + `)`
 	}
+
 
 	rows, err := t.Tx.Query(`
 		SELECT "id", "name", "email", "created"

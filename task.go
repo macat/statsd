@@ -16,6 +16,7 @@ type Task struct {
 
 func (t *Task) SendJson(data interface{}) {
 	t.Rw.Header().Set("Content-Type", "application/json; charset=utf-8")
+	t.Rw.Header().Set("Access-Control-Allow-Origin", "*")
 	enc := json.NewEncoder(t.Rw)
 	if err := enc.Encode(data); err != nil {
 		panic(err)
