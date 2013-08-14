@@ -77,8 +77,8 @@ func logout(t *Task) {
 
 func whoami(t *Task) {
 	if !userExists(t.Tx, t.Uid) {
-		t.SendJson(nil)
+		t.SendJson(map[string]string{"id": ""})
 	} else {
-		t.SendJson(t.Uid)
+		t.SendJson(map[string]string{"id": t.Uid})
 	}
 }

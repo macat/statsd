@@ -8,6 +8,7 @@ import (
 type PrefixRouter map[string]Handler
 
 func (r PrefixRouter) Serve(t *Task) {
+	t.Rw.Header().Set("Access-Control-Allow-Origin", "*")
 	prefix, suffix := t.Rq.URL.Path, ""
 
 	for strings.Contains(prefix, "//") {
@@ -25,7 +26,11 @@ func (r PrefixRouter) Serve(t *Task) {
 		suffix = "/"
 	}
 
-	if len(prefix) > 1 && prefix[1] == '*' {
+	if t.Rq.Method == "OPTIONS" {
+		t.Rw.Header().Set("Access-Control-Allow-Origin", "*")
+		t.Rw.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+		t.Rw.Header().Set("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept")
+	} else if len(prefix) > 1 && prefix[1] == '*' {
 		t.Rw.WriteHeader(http.StatusNotFound)
 	} else if handler, ok := r[prefix]; ok {
 		t.Rq.URL.Path = suffix
@@ -44,6 +49,7 @@ func (r PrefixRouter) Serve(t *Task) {
 type MethodRouter map[string]Handler
 
 func (r MethodRouter) Serve(t *Task) {
+
 	if t.Rq.URL.Path != "/" {
 		t.Rw.WriteHeader(http.StatusNotFound)
 	} else if handler, ok := r[t.Rq.Method]; ok {
