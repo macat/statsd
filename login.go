@@ -35,6 +35,7 @@ func login(t *Task) {
 	if err := row.Scan(&uid, &hash); err != nil {
 		if err == sql.ErrNoRows {
 			t.SendJson(false)
+			return
 		} else {
 			panic(err)
 		}
