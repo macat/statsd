@@ -45,6 +45,8 @@ func login(t *Task) {
 	if err == nil {
 		t.Uid = uid
 
+		// If the password was encrypted with a lower cost factor than the
+		// current default, rehash it on the first successful login attempt:
 		cost, err := bcrypt.Cost(hash)
 		if err != nil {
 			panic(err)
