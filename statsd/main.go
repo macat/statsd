@@ -1,16 +1,16 @@
 package main
 
 import (
+	"code.google.com/p/go.net/websocket"
 	"database/sql"
+	"fmt"
 	_ "github.com/lib/pq"
+	"io"
 	"log"
 	"net"
 	"net/http"
-	"strings"
-	"fmt"
 	"strconv"
-	"code.google.com/p/go.net/websocket"
-	"io"
+	"strings"
 )
 
 func main() {
@@ -22,9 +22,9 @@ func main() {
 
 	srv := NewServer(&net.UDPAddr{Port: 6000}, NewSqlDatastore(db))
 
-	go func () {
+	go func() {
 		httpSrv := http.Server{
-			Addr: ":6001",
+			Addr:    ":6001",
 			Handler: srv.(*server),
 		}
 		httpSrv.ListenAndServe()
@@ -53,7 +53,7 @@ func (srv *server) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {
 				ohCrap(rw, err)
 				return
 			}
-			websocket.Handler(func (conn *websocket.Conn) {
+			websocket.Handler(func(conn *websocket.Conn) {
 				fmt.Fprint(conn, w.Ts)
 				for v := range w.C {
 					if err := printSlice(conn, v); err != nil {
@@ -92,7 +92,7 @@ func (srv *server) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {
 				ohCrap(rw, err)
 				return
 			}
-			websocket.Handler(func (conn *websocket.Conn) {
+			websocket.Handler(func(conn *websocket.Conn) {
 				fmt.Fprint(conn, w.Ts)
 				for v := range w.C {
 					if err := printSlice(conn, v); err != nil {

@@ -1,12 +1,16 @@
 window.onload = function () {
-	W1 = new Widget("w1", "kozo_rx_bytes", "kozo_tx_bytes", false);
-	W2 = new Widget("w2", "kozo_rx_bytes", "kozo_tx_bytes", true);
-	W3 = new Widget("w3", "kozo_rx_packets", "kozo_tx_packets", false);
-	W4 = new Widget("w4", "kozo_rx_packets", "kozo_tx_packets", true);
-	W5 = new Widget("w5", "macat_rx_bytes", "macat_tx_bytes", false);
-	W6 = new Widget("w6", "macat_rx_bytes", "macat_tx_bytes", true);
-	W7 = new Widget("w7", "macat_rx_packets", "macat_tx_packets", false);
-	W8 = new Widget("w8", "macat_rx_packets", "macat_tx_packets", true);
+/*
+	W1 = new Widget("w1", "kozo_rx_bytes:meter", "kozo_tx_bytes:meter", false);
+	W2 = new Widget("w2", "kozo_rx_bytes:meter", "kozo_tx_bytes:meter", true);
+	W3 = new Widget("w3", "kozo_rx_packets:meter", "kozo_tx_packets:meter", false);
+	W4 = new Widget("w4", "kozo_rx_packets:meter", "kozo_tx_packets:meter", true);
+	W5 = new Widget("w5", "macat_rx_bytes:meter", "macat_tx_bytes:meter", false);
+	W6 = new Widget("w6", "macat_rx_bytes:meter", "macat_tx_bytes:meter", true);
+	W7 = new Widget("w7", "macat_rx_packets:meter", "macat_tx_packets:meter", false);
+	W8 = new Widget("w8", "macat_rx_packets:meter", "macat_tx_packets:meter", true);
+*/
+	W1 = new Widget("w1", "teszt:avg", "teszt:avg-cnt", false);
+	W2 = new Widget("w2", "teszt:avg", "teszt:avg-cnt", true);
 };
 
 function Widget(id, rx, tx, minutes) {
@@ -70,7 +74,7 @@ Widget.prototype.loadData = function (ch, name) {
 		live = "/live:";
 		params = "";
 	}
-	var ws = new WebSocket("ws://"+window.location.host+live+name+":meter"+params);
+	var ws = new WebSocket("ws://"+window.location.host+live+name+params);
 	var xhr = new XMLHttpRequest()
 	this.xhr[ch] = xhr;
 	this.ws[ch] = ws;
@@ -78,13 +82,13 @@ Widget.prototype.loadData = function (ch, name) {
 	var widget = this;
 	ws.onmessage = function (ev) {
 		if (widget.ws[ch] !== ws) return;
-		var d = JSON.parse(ev.data);
+		var d = JSON.parse(ev.data.replace(/NaN/g, "0"));
 		if (widget.ts[ch] === null) {
 			widget.ts[ch] = d - 600*(widget.minutes ? 60 : 1);
 			for (var i = 0; i < 600; i++) {
 				widget.data[ch][i] = 0;
 			}
-			xhr.open("GET", live+name+":meter"+params);
+			xhr.open("GET", live+name+params);
 			xhr.send();
 		} else {
 			widget.data[ch].push(d[0]);
@@ -96,7 +100,7 @@ Widget.prototype.loadData = function (ch, name) {
 	xhr.onreadystatechange = function (ev) {
 		if (xhr.readyState != 4) return;
 		if (widget.xhr[ch] !== xhr) return;
-		var d = JSON.parse(xhr.responseText), t = d.shift();
+		var d = JSON.parse(xhr.responseText.replace(/NaN/g, "0")), t = d.shift();
 		var diff = (widget.ts[ch] - t) / (widget.minutes ? 60 : 1);
 		for (var i = 0; i < d.length; i++) {
 			var j = i-diff;

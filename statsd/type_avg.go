@@ -14,7 +14,7 @@ func init() {
 			"avg":     false,
 			"avg-cnt": false,
 		},
-		aggregator: nil, // TODO
+		aggregator: createAvgAggregator,
 	}
 	registerMetricType(Avg, mt)
 }
@@ -41,4 +41,59 @@ func (b *avgMetric) flush() []float64 {
 	sum, count := b.sum, b.count
 	b.sum, b.count = 0, 0
 	return []float64{sum / count, count}
+}
+
+type avgAggregator struct {
+	avgOut, cntOut int
+	sum, cnt       float64
+}
+
+func createAvgAggregator(chs []string) aggregator {
+	aggr := &avgAggregator{avgOut: -1, cntOut: -1}
+	for i, ch := range chs {
+		if ch == "avg" {
+			aggr.avgOut = i
+		} else {
+			// "avg-cnt"
+			aggr.cntOut = i
+		}
+	}
+	return aggr
+}
+
+func (aggr *avgAggregator) channels() []string {
+	if aggr.avgOut == -1 {
+		return []string{"avg-cnt"}
+	} else {
+		return []string{"avg", "avg-cnt"}
+	}
+}
+
+func (aggr *avgAggregator) init([]float64) {
+}
+
+func (aggr *avgAggregator) put(data []float64) {
+	if aggr.avgOut != -1 {
+		aggr.sum += data[0] * data[1]
+		aggr.cnt += data[1]
+	} else {
+		aggr.cnt += data[0]
+	}
+}
+
+func (aggr *avgAggregator) get() []float64 {
+	avg, cnt := aggr.sum/aggr.cnt, aggr.cnt
+	aggr.sum, aggr.cnt = 0, 0
+	switch aggr.avgOut {
+	case -1:
+		return []float64{cnt}
+	case 0:
+		if aggr.cntOut == -1 {
+			return []float64{avg}
+		} else {
+			return []float64{avg, cnt}
+		}
+	default:
+		return []float64{cnt, avg}
+	}
 }

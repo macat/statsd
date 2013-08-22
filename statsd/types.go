@@ -53,6 +53,8 @@ func metricTypeByChannels(chs []string) (MetricType, error) {
 	if !ok {
 		return -1, ErrChannelInvalid
 	}
+
+	names := map[string]bool{chs[0]: true}
 	for _, ch := range chs[1:] {
 		t, ok := outputChannels[ch]
 		if !ok {
@@ -61,6 +63,10 @@ func metricTypeByChannels(chs []string) (MetricType, error) {
 		if t != typ {
 			return -1, ErrMixingTypes
 		}
+		if names[ch] {
+			return -1, ErrNonunique
+		}
+		names[ch] = true
 	}
 	return typ, nil
 }

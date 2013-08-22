@@ -48,6 +48,7 @@ const (
 	ErrMixingTypes     = Error("Cannot mix different metric types")
 	ErrInvalid         = Error("Invalid paramter")
 	ErrNoChannels      = Error("No channels specified")
+	ErrNonunique       = Error("Channel names must be unique")
 )
 
 const MsgMaxSize = 2048
@@ -562,14 +563,15 @@ func (srv *server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	w := &Watcher{
 		in:   make(chan []float64),
 		out:  make(chan []float64),
-		chs:  make([]int, len(chs)),
 		aggr: metricTypes[typ].aggregator(chs),
 		gran: gran,
 		offs: offs,
 	}
+	aggrChs := w.aggr.channels()
+	w.chs = make([]int, len(aggrChs))
 	w.C = w.out
 
-	for i, n := range chs {
+	for i, n := range aggrChs {
 		w.chs[i] = getChannelIndex(typ, n)
 	}
 
