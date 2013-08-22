@@ -79,7 +79,6 @@ type Watcher struct {
 	Ts   int64
 	C    <-chan []float64
 	me   *metricEntry
-	buff [][]float64
 	in   chan []float64
 	out  chan []float64
 	chs  []int
@@ -610,21 +609,22 @@ func (w *Watcher) Close() {
 }
 
 func (w *Watcher) run() {
-	for w.in != nil || len(w.buff) > 0 {
+	var buff [][]float64
+	for w.in != nil || len(buff) > 0 {
 		out, data := chan []float64(nil), []float64(nil)
-		if len(w.buff) > 0 {
+		if len(buff) > 0 {
 			out = w.out
-			data = w.buff[0]
+			data = buff[0]
 		}
 		select {
 		case out <- data:
-			w.buff[0] = nil
-			w.buff = w.buff[1:]
+			buff[0] = nil
+			buff = buff[1:]
 		case data, ok := <-w.in:
 			if !ok {
 				w.in = nil
 			} else {
-				w.buff = append(w.buff, data) // TODO: ez így meddig nő?
+				buff = append(buff, data)
 			}
 		}
 	}
