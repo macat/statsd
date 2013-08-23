@@ -15,9 +15,8 @@ type counterMetric struct {
 	tickSum, sum float64
 }
 
-func (m *counterMetric) inject(metric *Metric) error {
+func (m *counterMetric) inject(metric *Metric) {
 	m.tickSum += metric.Value / metric.SampleRate
-	return nil
 }
 
 func (m *counterMetric) tick() []float64 {

@@ -15,9 +15,8 @@ type gaugeMetric struct {
 	value float64
 }
 
-func (m *gaugeMetric) inject(metric *Metric) error {
+func (m *gaugeMetric) inject(metric *Metric) {
 	m.value = metric.Value
-	return nil
 }
 
 func (m *gaugeMetric) tick() []float64 {

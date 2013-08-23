@@ -23,10 +23,9 @@ type avgMetric struct {
 	tickSum, tickCount, sum, count float64
 }
 
-func (b *avgMetric) inject(metric *Metric) error {
+func (b *avgMetric) inject(metric *Metric) {
 	b.tickSum += metric.Value / metric.SampleRate
 	b.tickCount += 1 / metric.SampleRate
-	return nil
 }
 
 func (b *avgMetric) tick() []float64 {

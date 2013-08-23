@@ -42,7 +42,6 @@ const (
 	ErrTypeInvalid     = Error("Invalid type")
 	ErrValueInvalid    = Error("Invalid value")
 	ErrSamplingInvalid = Error("Invalid sample rate")
-	ErrNegativeMeter   = Error("Negative meter value")
 	ErrNoData          = Error("No data")
 	ErrChannelInvalid  = Error("No such channel")
 	ErrMixingTypes     = Error("Cannot mix different metric types")
@@ -172,12 +171,6 @@ func ParseMetric(m []byte) (*Metric, error) {
 	typ, sr := Counter, 1.0
 
 	switch string(fields[1]) {
-	case "m":
-		typ = Meter
-		if value < 0 {
-			return nil, ErrNegativeMeter
-		}
-
 	case "c":
 		typ = Counter
 
@@ -227,7 +220,8 @@ func (srv *server) Inject(metric *Metric) error {
 
 	me.recvdInput = true
 	me.recvdInputTick = true
-	return me.inject(metric)
+	me.inject(metric)
+	return nil
 }
 
 func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {

@@ -4,7 +4,6 @@ type MetricType int
 
 const (
 	Counter = MetricType(iota)
-	Meter
 	Timer
 	Gauge
 	Avg
@@ -17,7 +16,7 @@ var (
 )
 
 type metric interface {
-	inject(metric *Metric) error
+	inject(metric *Metric)
 	tick() []float64
 	flush() []float64
 }

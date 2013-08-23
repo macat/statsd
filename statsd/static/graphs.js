@@ -9,8 +9,7 @@ window.onload = function () {
 	W7 = new Widget("w7", "macat_rx_packets:meter", "macat_tx_packets:meter", false);
 	W8 = new Widget("w8", "macat_rx_packets:meter", "macat_tx_packets:meter", true);
 */
-	W1 = new Widget("w1", "teszt:avg", "teszt:avg-cnt", false);
-	W2 = new Widget("w2", "teszt:avg", "teszt:avg-cnt", true);
+	W1 = new Widget("w1", "teszt:timer-quart3", "teszt:timer-quart1", false);
 };
 
 function Widget(id, rx, tx, minutes) {
