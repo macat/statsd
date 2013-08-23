@@ -32,7 +32,7 @@ func init() {
 			"timer-max":    false,
 			"timer-cnt":    false,
 		},
-		aggregator: nil, // TODO
+		aggregator: createTimerAggregator,
 	}
 	registerMetricType(Timer, mt)
 }
@@ -104,4 +104,54 @@ func (s *timerSorter) Swap(i, j int) {
 	t1, t2 := s.data[i], s.cnt[i]
 	s.data[i], s.cnt[i] = s.data[j], s.cnt[j]
 	s.data[j], s.cnt[j] = t1, t2
+}
+
+type timerAggregator struct {
+	chs []int
+	data, cnt []float64
+}
+
+func createTimerAggregator(chs []string) aggregator {
+	aggr := &timerAggregator{chs: make([]int, len(chs))}
+	for i, ch := range chs {
+		for j, ch2 := range metricTypes[Timer].channels {
+			if ch == ch2 {
+				aggr.chs[i] = j
+				break
+			}
+		}
+	}
+	return aggr
+}
+
+func (aggr *timerAggregator) channels() []string {
+	return []string{
+		"timer-min",
+		"timer-quart1",
+		"timer-median",
+		"timer-quart3",
+		"timer-max",
+		"timer-cnt",
+	}
+}
+
+func (aggr *timerAggregator) init(data []float64) {
+}
+
+func (aggr *timerAggregator) put(data []float64) {
+	aggr.data = append(aggr.data, data[0], data[1], data[2], data[3], data[4])
+	aggr.cnt = append(aggr.cnt, data[5], data[5], data[5], data[5], data[5])
+}
+
+func (aggr *timerAggregator) get() []float64 {
+	// TODO: optimize
+	stats := timerStats(aggr.data, aggr.cnt)
+	stats[5] /= 5
+	r := make([]float64, len(aggr.chs))
+	for i, j := range aggr.chs {
+		r[i] = stats[j]
+	}
+	aggr.data = make([]float64, 0, len(aggr.data))
+	aggr.cnt = make([]float64, 0, len(aggr.data))
+	return r
 }
