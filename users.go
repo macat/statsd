@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/uuids"
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
 	"net/http"
@@ -38,7 +39,6 @@ func listUsers(t *Task) {
 		whereClause1 = `WHERE "id" IN (` + subq + `)`
 		whereClause2 = `WHERE "user_id" IN (` + subq + `)`
 	}
-
 
 	rows, err := t.Tx.Query(`
 		SELECT "id", "name", "email", "created"
@@ -171,7 +171,7 @@ func createUser(t *Task) {
 		panic(err)
 	}
 
-	id, err := NewUUID4()
+	id, err := uuids.NewUUID4()
 	if err != nil {
 		panic(err)
 	}
@@ -379,7 +379,7 @@ func deleteUser(t *Task) {
 }
 
 func userExists(tx *sql.Tx, uid string) bool {
-	if !ValidUUID(uid) {
+	if !uuids.ValidUUID(uid) {
 		return false
 	}
 

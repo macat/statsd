@@ -1,14 +1,15 @@
 package main
 
 import (
-	"net/http"
-	"time"
+	"admin/uuids"
 	"database/sql"
+	"net/http"
 	"strconv"
+	"time"
 )
 
 var dashboardsRouter = &Transactional{PrefixRouter(map[string]Handler{
-	"/":     MethodRouter(map[string]Handler{
+	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listDashboards),
 		"POST": HandlerFunc(createDashboard),
 	}),
@@ -43,7 +44,7 @@ func listDashboards(t *Task) {
 	}
 	defer rows.Close()
 
-	categories := make(map[string] []map[string]interface{}, 0)
+	categories := make(map[string][]map[string]interface{}, 0)
 	for rows.Next() {
 		var id, title, slug, category, creator string
 		var position int
@@ -121,7 +122,7 @@ func createDashboard(t *Task) {
 		}
 	}
 
-	id, err := NewUUID4()
+	id, err := uuids.NewUUID4()
 	if err != nil {
 		panic(err)
 	}
@@ -347,7 +348,7 @@ func deleteDashboard(t *Task) {
 }
 
 func dashboardExists(tx *sql.Tx, id string) bool {
-	if !ValidUUID(id) {
+	if !uuids.ValidUUID(id) {
 		return false
 	}
 	row := tx.QueryRow(`

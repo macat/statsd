@@ -1,4 +1,4 @@
-package main
+package uuids
 
 import (
 	"crypto/rand"

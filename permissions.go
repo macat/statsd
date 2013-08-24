@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/uuids"
 	"database/sql"
 	"net/http"
 	"strconv"
@@ -43,7 +44,7 @@ func grantPermission(t *Task) {
 	}
 
 	objId, ok := data["id"].(string)
-	if !ok || objId != "" && !ValidUUID(objId) {
+	if !ok || objId != "" && !uuids.ValidUUID(objId) {
 		t.SendError("Invalid 'id'")
 		return
 	}
@@ -129,13 +130,13 @@ func revokePermission(t *Task) {
 }
 
 func hasPermission(tx *sql.Tx, uid, method, objType, objId string) bool {
-	if !ValidUUID(uid) {
+	if !uuids.ValidUUID(uid) {
 		return false
 	}
 
 	objIdQ, params := "", []interface{}{uid, method, objType}
 	if objId != "" {
-		if ValidUUID(objId) {
+		if uuids.ValidUUID(objId) {
 			objIdQ = `"object_id" = $4 OR`
 			params = append(params, objId)
 		} else {
