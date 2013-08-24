@@ -69,8 +69,7 @@ func login(t *Task) {
 			}
 		}
 	}
-
-	t.SendJson(err == nil)
+	t.SendJson(map[string]bool{"success": err == nil})
 }
 
 func logout(t *Task) {
