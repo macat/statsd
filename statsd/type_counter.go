@@ -4,8 +4,8 @@ func init() {
 	mt := metricType{
 		create:     func() metric { return &counterMetric{} },
 		channels:   []string{"counter"},
-		defaults:   map[string]float64{"counter": 0},
-		persist:    map[string]bool{"counter": false},
+		defaults:   []float64{0},
+		persist:    []bool{false},
 		aggregator: func([]string) aggregator { return &counterAggregator{} },
 	}
 	registerMetricType(Counter, mt)
@@ -36,8 +36,8 @@ type counterAggregator struct {
 	sum float64
 }
 
-func (aggr *counterAggregator) channels() []string {
-	return []string{"counter"}
+func (aggr *counterAggregator) channels() []int {
+	return []int{0}
 }
 
 func (aggr *counterAggregator) init([]float64) {

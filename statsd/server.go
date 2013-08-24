@@ -242,8 +242,8 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 			lastTick: srv.lastTick,
 		}
 
-		for i, n := range chs {
-			def := srv.getChannelDefault(typ, name, n, srv.lastTick)
+		for i := range chs {
+			def := srv.getChannelDefault(typ, name, i, srv.lastTick)
 			live := new([LiveLogSize]float64)
 			for i := range live {
 				live[i] = def
@@ -259,10 +259,11 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 	return me
 }
 
-func (srv *server) getChannelDefault(typ MetricType, name, ch string, ts int64) float64 {
-	def := metricTypes[typ].defaults[ch]
-	if metricTypes[typ].persist[ch] {
-		rec, err := srv.ds.LatestBefore(name+":"+ch, ts)
+func (srv *server) getChannelDefault(typ MetricType, name string, i int, ts int64) float64 {
+	mt := metricTypes[typ]
+	def := mt.defaults[i]
+	if mt.persist[i] {
+		rec, err := srv.ds.LatestBefore(name+":"+mt.channels[i], ts)
 		if err == nil {
 			def = rec.Value
 		} else if err != ErrNoData {
@@ -371,11 +372,11 @@ func (me *metricEntry) updateLiveLog(ts int64) {
 		data = make([]float64, len(me.liveLog))
 		mt := metricTypes[me.typ]
 		prev := (me.livePtr + LiveLogSize - 1) % LiveLogSize
-		for i, ch := range mt.channels {
-			if mt.persist[ch] {
+		for i := range mt.channels {
+			if mt.persist[i] {
 				data[i] = me.liveLog[i][prev]
 			} else {
-				data[i] = mt.defaults[ch]
+				data[i] = mt.defaults[i]
 			}
 		}
 	}
@@ -500,13 +501,14 @@ func (srv *server) Log(name string, chs []string, from, length, gran int64) ([][
 func (srv *server) initAggregator(aggr aggregator, name string, typ MetricType, from, until int64) ([][]Record, error) {
 	inChs := aggr.channels()
 	input, tmp := make([][]Record, len(inChs)), make([]float64, len(inChs))
-	for i, n := range inChs {
-		in, err := srv.ds.Query(name+":"+n, from, until)
+	for i, j := range inChs {
+		ch := metricTypes[typ].channels[j]
+		in, err := srv.ds.Query(name+":"+ch, from, until)
 		if err != nil {
 			return nil, err
 		}
 		input[i] = in
-		tmp[i] = srv.getChannelDefault(typ, name, n, from)
+		tmp[i] = srv.getChannelDefault(typ, name, j, from)
 	}
 	aggr.init(tmp)
 	return input, nil
@@ -579,13 +581,8 @@ func (srv *server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 		gran: gran,
 		offs: offs,
 	}
-	aggrChs := w.aggr.channels()
-	w.chs = make([]int, len(aggrChs))
+	w.chs = w.aggr.channels()
 	w.C = w.out
-
-	for i, n := range aggrChs {
-		w.chs[i] = getChannelIndex(typ, n)
-	}
 
 	me := srv.getMetricEntry(typ, name)
 	defer me.Unlock()
