@@ -49,21 +49,7 @@ func grantPermission(t *Task) {
 		return
 	}
 
-	fields := map[string]interface{}{"group_id": group}
-	if method != "" {
-		fields["method"] = method
-	}
-	if objType != "" {
-		fields["object_type"] = objType
-	}
-	if objId != "" {
-		fields["object_id"] = objId
-	}
-	insert, vals := insertClause(fields)
-	_, err := t.Tx.Exec(`INSERT INTO "permissions" `+insert, vals...)
-	if err != nil {
-		panic(err)
-	}
+	access.Grant(t.Tx, group, method, objType, objId)
 }
 
 func revokePermission(t *Task) {
