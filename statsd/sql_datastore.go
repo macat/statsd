@@ -6,15 +6,17 @@ import (
 )
 
 type sqlDatastore struct {
-	db  *sql.DB
-	ids map[string]int64
+	db       *sql.DB
+	ids      map[string]int64
+	connSema chan int
 	sync.Mutex
 }
 
-func NewSqlDatastore(db *sql.DB) Datastore {
+func NewSqlDatastore(db *sql.DB, maxConn int) Datastore {
 	return &sqlDatastore{
-		db:  db,
-		ids: make(map[string]int64),
+		db:       db,
+		ids:      make(map[string]int64),
+		connSema: make(chan int, maxConn),
 	}
 }
 
@@ -37,6 +39,9 @@ func (ds *sqlDatastore) Init() error {
 }
 
 func (ds *sqlDatastore) Insert(name string, r Record) error {
+	ds.connSema <- 1
+	defer func () { <-ds.connSema }()
+
 	id, err := ds.getMetricId(name, true)
 	if err != nil {
 		return err
@@ -54,6 +59,9 @@ func (ds *sqlDatastore) Insert(name string, r Record) error {
 }
 
 func (ds *sqlDatastore) Query(name string, from, until int64) ([]Record, error) {
+	ds.connSema <- 1
+	defer func () { <-ds.connSema }()
+
 	id, err := ds.getMetricId(name, false)
 	if err != nil {
 		return nil, err
@@ -92,6 +100,9 @@ func (ds *sqlDatastore) Query(name string, from, until int64) ([]Record, error) 
 }
 
 func (ds *sqlDatastore) LatestBefore(name string, ts int64) (Record, error) {
+	ds.connSema <- 1
+	defer func () { <-ds.connSema }()
+
 	var rec Record
 
 	id, err := ds.getMetricId(name, false)
