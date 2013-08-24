@@ -1,8 +1,8 @@
 package main
 
 import (
+	"admin/access"
 	"admin/uuids"
-	"database/sql"
 	"net/http"
 	"strconv"
 )
@@ -13,7 +13,7 @@ var permissionsRouter = &Transactional{MethodRouter(map[string]Handler{
 })}
 
 func grantPermission(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "POST", "permissions", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "POST", "permissions", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -67,7 +67,7 @@ func grantPermission(t *Task) {
 }
 
 func revokePermission(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "DELETE", "permissions", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "DELETE", "permissions", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -127,42 +127,4 @@ func revokePermission(t *Task) {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func hasPermission(tx *sql.Tx, uid, method, objType, objId string) bool {
-	if !uuids.ValidUUID(uid) {
-		return false
-	}
-
-	objIdQ, params := "", []interface{}{uid, method, objType}
-	if objId != "" {
-		if uuids.ValidUUID(objId) {
-			objIdQ = `"object_id" = $4 OR`
-			params = append(params, objId)
-		} else {
-			return false
-		}
-	}
-	row := tx.QueryRow(`
-		SELECT COUNT(*)
-		FROM "permissions"
-		WHERE
-			"group_id" IN (
-				SELECT "group_id"
-				FROM "users_to_groups"
-				WHERE user_id = $1
-			) AND
-			("method" = $2 OR "method" IS NULL) AND
-			("object_type" = $3 OR "object_type" IS NULL) AND
-			(`+objIdQ+` "object_id" IS NULL)
-		`,
-		params...)
-
-	n := 0
-	err := row.Scan(&n)
-	if err != nil {
-		return false
-	}
-
-	return n > 0
 }

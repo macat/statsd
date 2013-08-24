@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/access"
 	"admin/uuids"
 	"database/sql"
 	"net/http"
@@ -21,7 +22,7 @@ var dashboardsRouter = &Transactional{PrefixRouter(map[string]Handler{
 })}
 
 func listDashboards(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "dashboards", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "dashboards", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -80,7 +81,7 @@ func listDashboards(t *Task) {
 }
 
 func createDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "POST", "dashboards", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "POST", "dashboards", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -155,7 +156,7 @@ func createDashboard(t *Task) {
 }
 
 func getDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "dashboard", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "dashboard", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -203,7 +204,7 @@ func getDashboard(t *Task) {
 }
 
 func changeDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "PATCH", "dashboard", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "PATCH", "dashboard", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -323,7 +324,7 @@ func changeDashboard(t *Task) {
 }
 
 func deleteDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "DELETE", "dashboard", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "DELETE", "dashboard", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}

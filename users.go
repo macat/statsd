@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/access"
 	"admin/uuids"
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
@@ -21,7 +22,7 @@ var usersRouter = &Transactional{PrefixRouter(map[string]Handler{
 })}
 
 func listUsers(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "users", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "users", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -125,7 +126,7 @@ func listUsers(t *Task) {
 }
 
 func createUser(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "POST", "users", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "POST", "users", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -190,7 +191,7 @@ func createUser(t *Task) {
 }
 
 func getUser(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "user", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "user", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -269,7 +270,7 @@ func getUser(t *Task) {
 }
 
 func changeUser(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "PATCH", "user", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "PATCH", "user", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -352,7 +353,7 @@ func changeUser(t *Task) {
 }
 
 func deleteUser(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "DELETE", "user", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "DELETE", "user", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
