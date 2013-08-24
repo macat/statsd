@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/uuids"
 	"net/http"
 	"strings"
 )
@@ -35,7 +36,7 @@ func (r PrefixRouter) Serve(t *Task) {
 	} else if handler, ok := r[prefix]; ok {
 		t.Rq.URL.Path = suffix
 		handler.Serve(t)
-	} else if handler, ok := r["*uuid"]; ok && ValidUUID(prefix[1:]) {
+	} else if handler, ok := r["*uuid"]; ok && uuids.ValidUUID(prefix[1:]) {
 		t.Rq.URL.Path = suffix
 		t.UUID = prefix[1:]
 		handler.Serve(t)

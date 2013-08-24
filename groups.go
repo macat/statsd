@@ -1,6 +1,8 @@
 package main
 
 import (
+	"admin/access"
+	"admin/uuids"
 	"database/sql"
 	"net/http"
 	"time"
@@ -25,7 +27,7 @@ var groupsRouter = &Transactional{PrefixRouter(map[string]Handler{
 })}
 
 func listGroups(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "groups", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "groups", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -90,7 +92,7 @@ func listGroups(t *Task) {
 }
 
 func createGroup(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "POST", "groups", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "POST", "groups", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -107,7 +109,7 @@ func createGroup(t *Task) {
 		return
 	}
 
-	id, err := NewUUID4()
+	id, err := uuids.NewUUID4()
 	if err != nil {
 		panic(err)
 	}
@@ -125,7 +127,7 @@ func createGroup(t *Task) {
 }
 
 func getGroup(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "group", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "group", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -198,7 +200,7 @@ func getGroup(t *Task) {
 }
 
 func changeGroup(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "PATCH", "group", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "PATCH", "group", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -235,7 +237,7 @@ func changeGroup(t *Task) {
 }
 
 func deleteGroup(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "DELETE", "group", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "DELETE", "group", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -262,7 +264,7 @@ func deleteGroup(t *Task) {
 }
 
 func addUserToGroup(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "POST", "group_members", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "POST", "group_members", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -292,7 +294,7 @@ func addUserToGroup(t *Task) {
 }
 
 func removeUserFromGroup(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "DELETE", "group_members", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "DELETE", "group_members", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -319,7 +321,7 @@ func removeUserFromGroup(t *Task) {
 }
 
 func groupExists(tx *sql.Tx, gid string) bool {
-	if !ValidUUID(gid) {
+	if !uuids.ValidUUID(gid) {
 		return false
 	}
 
@@ -333,7 +335,7 @@ func groupExists(tx *sql.Tx, gid string) bool {
 }
 
 func userInGroup(tx *sql.Tx, uid, gid string) bool {
-	if !ValidUUID(uid) || !ValidUUID(gid) {
+	if !uuids.ValidUUID(uid) || !uuids.ValidUUID(gid) {
 		return false
 	}
 
@@ -350,7 +352,7 @@ func userInGroup(tx *sql.Tx, uid, gid string) bool {
 }
 
 func groupsOfUser(tx *sql.Tx, uid string) []string {
-	if !ValidUUID(uid) {
+	if !uuids.ValidUUID(uid) {
 		return nil
 	}
 

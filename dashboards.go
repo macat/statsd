@@ -1,14 +1,16 @@
 package main
 
 import (
-	"net/http"
-	"time"
+	"admin/access"
+	"admin/uuids"
 	"database/sql"
+	"net/http"
 	"strconv"
+	"time"
 )
 
 var dashboardsRouter = &Transactional{PrefixRouter(map[string]Handler{
-	"/":     MethodRouter(map[string]Handler{
+	"/": MethodRouter(map[string]Handler{
 		"GET":  HandlerFunc(listDashboards),
 		"POST": HandlerFunc(createDashboard),
 	}),
@@ -20,7 +22,7 @@ var dashboardsRouter = &Transactional{PrefixRouter(map[string]Handler{
 })}
 
 func listDashboards(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "dashboards", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "dashboards", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -43,7 +45,7 @@ func listDashboards(t *Task) {
 	}
 	defer rows.Close()
 
-	categories := make(map[string] []map[string]interface{}, 0)
+	categories := make(map[string][]map[string]interface{}, 0)
 	for rows.Next() {
 		var id, title, slug, category, creator string
 		var position int
@@ -79,7 +81,7 @@ func listDashboards(t *Task) {
 }
 
 func createDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "POST", "dashboards", "") {
+	if !access.HasPermission(t.Tx, t.Uid, "POST", "dashboards", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -121,7 +123,7 @@ func createDashboard(t *Task) {
 		}
 	}
 
-	id, err := NewUUID4()
+	id, err := uuids.NewUUID4()
 	if err != nil {
 		panic(err)
 	}
@@ -154,7 +156,7 @@ func createDashboard(t *Task) {
 }
 
 func getDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "GET", "dashboard", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "dashboard", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -202,7 +204,7 @@ func getDashboard(t *Task) {
 }
 
 func changeDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "PATCH", "dashboard", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "PATCH", "dashboard", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -322,7 +324,7 @@ func changeDashboard(t *Task) {
 }
 
 func deleteDashboard(t *Task) {
-	if !hasPermission(t.Tx, t.Uid, "DELETE", "dashboard", t.UUID) {
+	if !access.HasPermission(t.Tx, t.Uid, "DELETE", "dashboard", t.UUID) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -347,7 +349,7 @@ func deleteDashboard(t *Task) {
 }
 
 func dashboardExists(tx *sql.Tx, id string) bool {
-	if !ValidUUID(id) {
+	if !uuids.ValidUUID(id) {
 		return false
 	}
 	row := tx.QueryRow(`
