@@ -118,7 +118,7 @@ func (srv *server) Serve() error {
 		buff := make([]byte, MsgMaxSize)
 		n, err := conn.Read(buff)
 		if err != nil {
-			log.Println(err)
+			log.Println("Serve:", err)
 			continue
 		}
 		go srv.processMsg(buff[0:n])
@@ -133,12 +133,12 @@ func (srv *server) processMsg(msg []byte) {
 		}
 		metric, err := ParseMetric(m)
 		if err != nil {
-			log.Println(err)
+			log.Println("ParseMetric:", err)
 			continue
 		}
 		err = srv.Inject(metric)
 		if err != nil {
-			log.Println(err)
+			log.Println("Inject:", err)
 		}
 	}
 }
@@ -266,7 +266,7 @@ func (srv *server) getChannelDefault(typ MetricType, name, ch string, ts int64) 
 		if err == nil {
 			def = rec.Value
 		} else if err != ErrNoData {
-			log.Println(err)
+			log.Println("getChannelDefault:", err)
 		}
 	}
 	return def
@@ -407,7 +407,7 @@ func (srv *server) flushMetric(ts int64, me *metricEntry) {
 	for i, n := range metricTypes[me.typ].channels {
 		err := srv.ds.Insert(me.name+":"+n, Record{Ts: ts, Value: data[i]})
 		if err != nil {
-			log.Println(err)
+			log.Println("flushMetric:", err)
 		}
 	}
 
