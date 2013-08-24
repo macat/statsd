@@ -66,6 +66,8 @@ type server struct {
 type metricEntry struct {
 	metric
 	sync.Mutex
+	typ            MetricType
+	name           string
 	recvdInput     bool
 	recvdInputTick bool
 	idleTicks      int
@@ -234,6 +236,8 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 
 		me = &metricEntry{
 			metric:   metricTypes[typ].create(),
+			typ:      typ,
+			name:     name,
 			liveLog:  make([]*[LiveLogSize]float64, len(chs)),
 			lastTick: srv.lastTick,
 		}
@@ -313,9 +317,9 @@ func (srv *server) flushMetrics(ts int64) {
 	srv.notify = make(chan int, srv.nEntries)
 	srv.lastTick = ts
 
-	for typ, metrics := range srv.metrics {
-		for name, me := range metrics {
-			srv.flushOrDelete(ts, me, typ, name)
+	for _, metrics := range srv.metrics {
+		for _, me := range metrics {
+			srv.flushOrDelete(ts, me)
 		}
 	}
 
@@ -333,7 +337,7 @@ func (srv *server) tickMetric(ts int64, me *metricEntry) {
 	srv.notify <- 1
 }
 
-func (srv *server) flushOrDelete(ts int64, me *metricEntry, typ int, n string) {
+func (srv *server) flushOrDelete(ts int64, me *metricEntry) {
 	me.Lock()
 	defer me.Unlock()
 
@@ -341,10 +345,10 @@ func (srv *server) flushOrDelete(ts int64, me *metricEntry, typ int, n string) {
 
 	if me.recvdInput {
 		me.recvdInput = false
-		go srv.flushMetric(ts, typ, n, me)
+		go srv.flushMetric(ts, me)
 	} else if me.idleTicks > LiveLogSize && len(me.watchers) == 0 {
 		srv.nEntries--
-		delete(srv.metrics[typ], n)
+		delete(srv.metrics[me.typ], me.name)
 	} else {
 		srv.notify <- 1
 	}
@@ -360,7 +364,21 @@ func (me *metricEntry) updateIdle() {
 }
 
 func (me *metricEntry) updateLiveLog(ts int64) {
-	data := me.tick()
+	var data []float64
+	if me.idleTicks == 0 {
+		data = me.tick()
+	} else {
+		data = make([]float64, len(me.liveLog))
+		mt := metricTypes[me.typ]
+		prev := (me.livePtr + LiveLogSize - 1) % LiveLogSize
+		for i, ch := range mt.channels {
+			if mt.persist[ch] {
+				data[i] = me.liveLog[i][prev]
+			} else {
+				data[i] = mt.defaults[ch]
+			}
+		}
+	}
 	for ch, live := range me.liveLog {
 		live[me.livePtr] = data[ch]
 	}
@@ -379,15 +397,15 @@ func (me *metricEntry) updateLiveLog(ts int64) {
 	}
 }
 
-func (srv *server) flushMetric(ts int64, typ int, name string, me *metricEntry) {
+func (srv *server) flushMetric(ts int64, me *metricEntry) {
 	me.Lock()
 	defer me.Unlock()
 
 	me.updateLiveLog(ts)
 
 	data := me.flush()
-	for i, n := range metricTypes[typ].channels {
-		err := srv.ds.Insert(name+":"+n, Record{Ts: ts, Value: data[i]})
+	for i, n := range metricTypes[me.typ].channels {
+		err := srv.ds.Insert(me.name+":"+n, Record{Ts: ts, Value: data[i]})
 		if err != nil {
 			log.Println(err)
 		}
