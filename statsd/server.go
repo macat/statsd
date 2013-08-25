@@ -39,6 +39,7 @@ const (
 	ErrNoName          = Error("Name missing")
 	ErrNoType          = Error("Type missing")
 	ErrNoValue         = Error("Value missing")
+	ErrNoSampling      = Error("Sample rate missing")
 	ErrNameInvalid     = Error("Invalid characters in name")
 	ErrTypeInvalid     = Error("Invalid type")
 	ErrValueInvalid    = Error("Invalid value")
@@ -146,56 +147,80 @@ func (srv *server) processMsg(msg []byte) {
 
 func ParseMetric(m []byte) (*Metric, error) {
 	// See https://github.com/b/statsd_spec
+	var n int
 
-	n := bytes.IndexByte(m, ':')
-	if n <= 0 { // -1 or 0
+	if len(m) == 0 {
 		return nil, ErrNoName
 	}
-	name := m[0:n]
-
-	if n == len(m)-1 {
+	n = -1
+	for i, ch := range m {
+		if ch == ':' {
+			n = i
+			break
+		} else if ch == '/' || ch == 0 {
+			return nil, ErrNameInvalid
+		}
+	}
+	if n == 0 {
+		return nil, ErrNoName
+	} else if n == -1 || n == len(m)-1 {
 		return nil, ErrNoValue
 	}
+	name := m[:n]
 
-	if i := bytes.IndexAny(name, "/:\x00"); i != -1 {
-		return nil, ErrNameInvalid
+	n, m = -1, m[n+1:]
+	for i, ch := range m {
+		if ch == '|' {
+			n = i
+			break
+		}
 	}
-
-	fields := bytes.Split(m[n+1:], []byte{'|'})
-	if len(fields) < 2 || len(fields[1]) == 0 {
+	if n == 0 {
+		return nil, ErrNoValue
+	} else if n == -1 || n == len(m)-1 {
 		return nil, ErrNoType
 	}
-
-	value, err := strconv.ParseFloat(string(fields[0]), 64)
+	value, err := strconv.ParseFloat(string(m[:n]), 64)
 	if err != nil {
 		return nil, ErrValueInvalid
 	}
 
-	typ, sr := Counter, 1.0
-
-	switch string(fields[1]) {
-	case "c":
-		typ = Counter
-
-	case "ms":
+	n, m = -1, m[n+1:]
+	for i, ch := range m {
+		if ch == '|' {
+			n = i
+			break
+		}
+	}
+	if n == -1 {
+		n = len(m)
+	}
+	typ := MetricType(-1)
+	if n == 1 {
+		switch m[0] {
+		case 'c':
+			typ = Counter
+		case 'g':
+			typ = Gauge
+		case 'a':
+			typ = Avg
+		}
+	} else if n == 2 && m[0] == 'm' && m[1] == 's' {
 		typ = Timer
-
-	case "g":
-		typ = Gauge
-
-	case "a":
-		typ = Avg
-
-	default:
+	}
+	if typ == MetricType(-1) {
 		return nil, ErrTypeInvalid
 	}
 
-	if len(fields) >= 3 {
-		if len(fields[2]) == 0 || fields[2][0] != '@' {
+	sr := 1.0
+	if n != len(m) {
+		if n == len(m)-1 {
+			return nil, ErrNoSampling
+		}
+		if m[n+1] != '@' {
 			return nil, ErrSamplingInvalid
 		}
-
-		s, err := strconv.ParseFloat(string(fields[2][1:]), 64)
+		s, err := strconv.ParseFloat(string(m[n+2:]), 64)
 		if err != nil || s <= 0 {
 			return nil, ErrSamplingInvalid
 		}
