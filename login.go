@@ -3,12 +3,13 @@ package main
 import (
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
+	"net/http"
 )
 
 func login(t *Task) {
 	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
-		t.SendJson(false)
+		t.SendJson(map[string]bool{"success": false})
 		return
 	}
 
@@ -16,12 +17,12 @@ func login(t *Task) {
 	var passwd, hash []byte
 
 	if email, ok = data["email"].(string); !ok {
-		t.SendJson(false)
+		t.SendJson(map[string]bool{"success": false})
 		return
 	}
 
 	if p, ok := data["password"].(string); !ok {
-		t.SendJson(false)
+		t.SendJson(map[string]bool{"success": false})
 		return
 	} else {
 		passwd = []byte(p)
@@ -34,7 +35,7 @@ func login(t *Task) {
 
 	if err := row.Scan(&uid, &hash); err != nil {
 		if err == sql.ErrNoRows {
-			t.SendJson(false)
+			t.SendJson(map[string]bool{"success": false})
 			return
 		} else {
 			panic(err)
@@ -69,7 +70,12 @@ func login(t *Task) {
 			}
 		}
 	}
-	t.SendJson(map[string]bool{"success": err == nil})
+	if err == nil {
+		http.SetCookie(t.Rw, &http.Cookie{Name: "uid", Value: uid})
+		t.SendJson(map[string]interface{}{"success": true, "id": uid})
+	} else {
+		t.SendJson(map[string]interface{}{"success": false})
+	}
 }
 
 func logout(t *Task) {
