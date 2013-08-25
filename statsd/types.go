@@ -1,5 +1,7 @@
 package main
 
+// TODO: persistent counter
+
 type MetricType int
 
 const (
@@ -16,7 +18,8 @@ var (
 )
 
 type metric interface {
-	inject(metric *Metric)
+	init([]float64)
+	inject(*Metric)
 	tick() []float64
 	flush() []float64
 }

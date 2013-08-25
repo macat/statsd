@@ -15,6 +15,10 @@ type gaugeMetric struct {
 	value float64
 }
 
+func (m *gaugeMetric) init(data []float64) {
+	m.value = data[0]
+}
+
 func (m *gaugeMetric) inject(metric *Metric) {
 	m.value = metric.Value
 }

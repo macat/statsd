@@ -11,6 +11,7 @@ import (
 )
 
 // TODO: clean shutdown (save and restore the live log)
+// TODO: move networking outside of Server
 
 type Server interface {
 	Serve() error
@@ -242,14 +243,18 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 			lastTick: srv.lastTick,
 		}
 
+		initData := make([]float64, len(chs))
 		for i := range chs {
 			def := srv.getChannelDefault(typ, name, i, srv.lastTick)
+			initData[i] = def
 			live := new([LiveLogSize]float64)
 			for i := range live {
 				live[i] = def
 			}
 			me.liveLog[i] = live
 		}
+
+		me.init(initData)
 
 		srv.metrics[typ][name] = me
 		srv.nEntries++
@@ -366,20 +371,7 @@ func (me *metricEntry) updateIdle() {
 
 func (me *metricEntry) updateLiveLog(ts int64) {
 	var data []float64
-	if me.idleTicks == 0 {
-		data = me.tick()
-	} else {
-		data = make([]float64, len(me.liveLog))
-		mt := metricTypes[me.typ]
-		prev := (me.livePtr + LiveLogSize - 1) % LiveLogSize
-		for i := range mt.channels {
-			if mt.persist[i] {
-				data[i] = me.liveLog[i][prev]
-			} else {
-				data[i] = mt.defaults[i]
-			}
-		}
-	}
+	data = me.tick()
 	for ch, live := range me.liveLog {
 		live[me.livePtr] = data[ch]
 	}

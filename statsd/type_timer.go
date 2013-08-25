@@ -42,6 +42,9 @@ type timerMetric struct {
 	tickCnt, cnt   []float64
 }
 
+func (m *timerMetric) init([]float64) {
+}
+
 func (m *timerMetric) inject(metric *Metric) {
 	m.tickData = append(m.tickData, metric.Value)
 	m.tickCnt = append(m.tickCnt, 1/metric.SampleRate)
