@@ -3,19 +3,35 @@ package main
 import (
 	"database/sql"
 	"sync"
+	"log"
+	"strconv"
+	"strings"
 )
 
 type sqlDatastore struct {
-	db  *sql.DB
-	ids map[string]int64
+	db       *sql.DB
+	ids      map[string]int64
+	connSema chan int
 	sync.Mutex
+	insertCond  *sync.Cond
+	insertQueue []sqlDsRecord
 }
 
-func NewSqlDatastore(db *sql.DB) Datastore {
-	return &sqlDatastore{
-		db:  db,
-		ids: make(map[string]int64),
+type sqlDsRecord struct {
+	name  string
+	ts    int64
+	value float64
+}
+
+func NewSqlDatastore(db *sql.DB, maxConn int) Datastore {
+	ds := &sqlDatastore{
+		db:       db,
+		ids:      make(map[string]int64),
+		connSema: make(chan int, maxConn),
+		insertCond: sync.NewCond(&sync.Mutex{}),
 	}
+	go ds.doInserts()
+	return ds
 }
 
 func (ds *sqlDatastore) Init() error {
@@ -37,23 +53,53 @@ func (ds *sqlDatastore) Init() error {
 }
 
 func (ds *sqlDatastore) Insert(name string, r Record) error {
-	id, err := ds.getMetricId(name, true)
-	if err != nil {
-		return err
-	}
+	ds.insertCond.L.Lock()
+	defer ds.insertCond.L.Unlock()
 
-	_, err = ds.db.Exec(`
-		INSERT INTO "stats" ("metric_id", "timestamp", "value")
-		VALUES ($1, $2, $3)`,
-		id, r.Ts, r.Value)
-	if err != nil {
-		return err
-	}
-
+	ds.insertQueue = append(ds.insertQueue, sqlDsRecord{name, r.Ts, r.Value})
+	ds.insertCond.Signal()
 	return nil
 }
 
+func (ds *sqlDatastore) doInserts() {
+	for {
+		ds.insertCond.L.Lock()
+		if len(ds.insertQueue) == 0 {
+			ds.insertCond.Wait()
+		}
+		data := ds.insertQueue
+		ds.insertQueue = make([]sqlDsRecord, 0, 2*len(data))
+		ds.insertCond.L.Unlock()
+
+		values, params := make([]interface{}, 0, 3*len(data)), []string{}
+		for _, r := range data {
+			id, err := ds.getMetricId(r.name, true)
+			if err != nil {
+				log.Println("doInserts:", err)
+				continue
+			}
+
+			params = append(params,
+				"($" + strconv.Itoa(len(values)+1) +
+				", $" + strconv.Itoa(len(values)+2) +
+				", $" + strconv.Itoa(len(values)+3) + ")")
+			values = append(values, id, r.ts, r.value)
+		}
+
+		_, err := ds.db.Query(`
+			INSERT INTO "stats" ("metric_id", "timestamp", "value")
+			VALUES ` + strings.Join(params, ", "),
+			values...)
+		if err != nil {
+			log.Println("doInserts:", err)
+		}
+	}
+}
+
 func (ds *sqlDatastore) Query(name string, from, until int64) ([]Record, error) {
+	ds.connSema <- 1
+	defer func () { <-ds.connSema }()
+
 	id, err := ds.getMetricId(name, false)
 	if err != nil {
 		return nil, err
@@ -92,6 +138,9 @@ func (ds *sqlDatastore) Query(name string, from, until int64) ([]Record, error) 
 }
 
 func (ds *sqlDatastore) LatestBefore(name string, ts int64) (Record, error) {
+	ds.connSema <- 1
+	defer func () { <-ds.connSema }()
+
 	var rec Record
 
 	id, err := ds.getMetricId(name, false)
@@ -122,6 +171,9 @@ func (ds *sqlDatastore) LatestBefore(name string, ts int64) (Record, error) {
 }
 
 func (ds *sqlDatastore) getMetricId(name string, create bool) (int64, error) {
+	ds.connSema <- 1
+	defer func () { <-ds.connSema }()
+
 	ds.Lock()
 	defer ds.Unlock()
 

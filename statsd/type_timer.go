@@ -16,21 +16,21 @@ func init() {
 			"timer-max",
 			"timer-cnt",
 		},
-		defaults: map[string]float64{
-			"timer-min":    math.NaN(),
-			"timer-quart1": math.NaN(),
-			"timer-median": math.NaN(),
-			"timer-quart3": math.NaN(),
-			"timer-max":    math.NaN(),
-			"timer-cnt":    0,
+		defaults: []float64{
+			math.NaN(),
+			math.NaN(),
+			math.NaN(),
+			math.NaN(),
+			math.NaN(),
+			0,
 		},
-		persist: map[string]bool{
-			"timer-min":    false,
-			"timer-quart1": false,
-			"timer-median": false,
-			"timer-quart3": false,
-			"timer-max":    false,
-			"timer-cnt":    false,
+		persist: []bool{
+			false,
+			false,
+			false,
+			false,
+			false,
+			false,
 		},
 		aggregator: createTimerAggregator,
 	}
@@ -107,7 +107,7 @@ func (s *timerSorter) Swap(i, j int) {
 }
 
 type timerAggregator struct {
-	chs []int
+	chs       []int
 	data, cnt []float64
 }
 
@@ -124,15 +124,8 @@ func createTimerAggregator(chs []string) aggregator {
 	return aggr
 }
 
-func (aggr *timerAggregator) channels() []string {
-	return []string{
-		"timer-min",
-		"timer-quart1",
-		"timer-median",
-		"timer-quart3",
-		"timer-max",
-		"timer-cnt",
-	}
+func (aggr *timerAggregator) channels() []int {
+	return []int{0, 1, 2, 3, 4, 5}
 }
 
 func (aggr *timerAggregator) init(data []float64) {

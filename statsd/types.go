@@ -22,7 +22,7 @@ type metric interface {
 }
 
 type aggregator interface {
-	channels() []string
+	channels() []int
 	init([]float64)
 	put([]float64)
 	get() []float64
@@ -31,8 +31,8 @@ type aggregator interface {
 type metricType struct {
 	create     func() metric
 	channels   []string
-	defaults   map[string]float64
-	persist    map[string]bool
+	defaults   []float64
+	persist    []bool
 	aggregator func([]string) aggregator
 }
 

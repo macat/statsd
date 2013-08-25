@@ -6,14 +6,8 @@ func init() {
 	mt := metricType{
 		create:   func() metric { return &avgMetric{} },
 		channels: []string{"avg", "avg-cnt"},
-		defaults: map[string]float64{
-			"avg":     math.NaN(),
-			"avg-cnt": 0,
-		},
-		persist: map[string]bool{
-			"avg":     false,
-			"avg-cnt": false,
-		},
+		defaults: []float64{math.NaN(), 0},
+		persist:  []bool{false, false},
 		aggregator: createAvgAggregator,
 	}
 	registerMetricType(Avg, mt)
@@ -60,11 +54,11 @@ func createAvgAggregator(chs []string) aggregator {
 	return aggr
 }
 
-func (aggr *avgAggregator) channels() []string {
+func (aggr *avgAggregator) channels() []int {
 	if aggr.avgOut == -1 {
-		return []string{"avg-cnt"}
+		return []int{1}
 	} else {
-		return []string{"avg", "avg-cnt"}
+		return []int{0, 1}
 	}
 }
 

@@ -4,8 +4,8 @@ func init() {
 	mt := metricType{
 		create:     func() metric { return &gaugeMetric{} },
 		channels:   []string{"gauge"},
-		defaults:   map[string]float64{"gauge": 0},
-		persist:    map[string]bool{"gauge": true},
+		defaults:   []float64{0},
+		persist:    []bool{true},
 		aggregator: func([]string) aggregator { return &gaugeAggregator{} },
 	}
 	registerMetricType(Gauge, mt)
@@ -31,8 +31,8 @@ type gaugeAggregator struct {
 	value float64
 }
 
-func (aggr *gaugeAggregator) channels() []string {
-	return []string{"gauge"}
+func (aggr *gaugeAggregator) channels() []int {
+	return []int{0}
 }
 
 func (aggr *gaugeAggregator) init(data []float64) {

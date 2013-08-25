@@ -20,7 +20,7 @@ func main() {
 		return
 	}
 
-	srv := NewServer(&net.UDPAddr{Port: 6000}, NewSqlDatastore(db))
+	srv := NewServer(&net.UDPAddr{Port: 6000}, NewSqlDatastore(db, 20))
 
 	go func() {
 		httpSrv := http.Server{
