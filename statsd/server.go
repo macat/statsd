@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"log"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -128,12 +126,12 @@ func (srv *server) Serve() error {
 }
 
 func (srv *server) processMsg(msg []byte) {
-	metrics := bytes.Split(msg, []byte{'\n'})
-	for _, m := range metrics {
-		if len(m) == 0 { // Silently ignore blank lines
+	for i, j := 0, -1; i <= len(msg); i++ {
+		if i != len(msg) && msg[i] != '\n' || i == j+1 {
 			continue
 		}
-		metric, err := ParseMetric(m)
+		metric, err := ParseMetric(msg[j+1:i])
+		j = i
 		if err != nil {
 			log.Println("ParseMetric:", err)
 			continue
@@ -239,8 +237,10 @@ func (srv *server) Inject(metric *Metric) error {
 		return ErrSamplingInvalid
 	}
 
-	if i := strings.IndexAny(metric.Name, "/:\x00"); i != -1 {
-		return ErrNameInvalid
+	for _, ch := range metric.Name {
+		if ch == ':' || ch == '/' || ch == 0 {
+			return ErrNameInvalid
+		}
 	}
 
 	me := srv.getMetricEntry(metric.Type, metric.Name)
