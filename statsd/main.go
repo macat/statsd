@@ -7,7 +7,6 @@ import (
 	_ "github.com/lib/pq"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,7 +19,7 @@ func main() {
 		return
 	}
 
-	srv := NewServer(&net.UDPAddr{Port: 6000}, NewSqlDatastore(db, 20))
+	srv := NewServer(NewSqlDatastore(db, 20))
 
 	go func() {
 		httpSrv := http.Server{
@@ -30,11 +29,15 @@ func main() {
 		httpSrv.ListenAndServe()
 	}()
 
-	err = srv.Serve()
+	err = srv.Start()
 	if err != nil {
 		log.Println(err.Error())
 		return
 	}
+	inj := UDPInjector{Addr: ":6000", Server: srv}
+	inj.Start()
+
+	<-make(chan int)
 }
 
 func (srv *server) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {

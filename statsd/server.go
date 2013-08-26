@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net"
 	"strconv"
 	"sync"
 	"time"
@@ -12,8 +11,9 @@ import (
 // TODO: move networking outside of Server
 
 type Server interface {
-	Serve() error
+	Start() error
 	Inject(*Metric) error
+	InjectBytes([]byte)
 	LiveLog(name string, chs []string) ([][]float64, int64, error)
 	Log(name string, chs []string, from, length, gran int64) ([][]float64, error)
 	LiveWatch(name string, chs []string) (*Watcher, error)
@@ -55,7 +55,6 @@ const LiveLogSize = 600
 
 type server struct {
 	sync.Mutex
-	addr     *net.UDPAddr
 	ds       Datastore
 	metrics  [NMetricTypes]map[string]*metricEntry
 	nEntries int
@@ -89,48 +88,28 @@ type Watcher struct {
 	offs int64
 }
 
-func NewServer(addr *net.UDPAddr, ds Datastore) Server {
-	srv := &server{
-		addr: addr,
-		ds:   ds,
-	}
+func NewServer(ds Datastore) Server {
+	srv := &server{ds: ds}
 	for i := range srv.metrics {
 		srv.metrics[i] = make(map[string]*metricEntry)
 	}
 	return srv
 }
 
-func (srv *server) Serve() error {
-	conn, err := net.ListenUDP("udp", srv.addr)
-	if err != nil {
+func (srv *server) Start() error {
+	if err := srv.ds.Init(); err != nil {
 		return err
 	}
-
-	err = srv.ds.Init()
-	if err != nil {
-		return err
-	}
-
-	srv.lastTick = time.Now().Unix()
 	go srv.tick()
-
-	for {
-		buff := make([]byte, MsgMaxSize)
-		n, err := conn.Read(buff)
-		if err != nil {
-			log.Println("Serve:", err)
-			continue
-		}
-		go srv.processMsg(buff[0:n])
-	}
+	return nil
 }
 
-func (srv *server) processMsg(msg []byte) {
+func (srv *server) InjectBytes(msg []byte) {
 	for i, j := 0, -1; i <= len(msg); i++ {
 		if i != len(msg) && msg[i] != '\n' || i == j+1 {
 			continue
 		}
-		metric, err := ParseMetric(msg[j+1:i])
+		metric, err := ParseMetric(msg[j+1 : i])
 		j = i
 		if err != nil {
 			log.Println("ParseMetric:", err)
@@ -305,6 +284,7 @@ func (srv *server) getChannelDefault(typ MetricType, name string, i int, ts int6
 
 func (srv *server) tick() {
 	tickCh := time.Tick(time.Second)
+	srv.lastTick = time.Now().Unix()
 	for {
 		select {
 		case t := <-tickCh:
