@@ -8,7 +8,6 @@ import (
 )
 
 // TODO: clean shutdown (save and restore the live log)
-// TODO: move networking outside of Server
 
 type Server interface {
 	Start() error
