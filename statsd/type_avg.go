@@ -4,10 +4,10 @@ import "math"
 
 func init() {
 	mt := metricType{
-		create:   func() metric { return &avgMetric{} },
-		channels: []string{"avg", "avg-cnt"},
-		defaults: []float64{math.NaN(), 0},
-		persist:  []bool{false, false},
+		create:     func() metric { return &avgMetric{} },
+		channels:   []string{"avg", "avg-cnt"},
+		defaults:   []float64{math.NaN(), 0},
+		persist:    []bool{false, false},
 		aggregator: createAvgAggregator,
 	}
 	registerMetricType(Avg, mt)
