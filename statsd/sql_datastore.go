@@ -2,10 +2,10 @@ package main
 
 import (
 	"database/sql"
-	"sync"
 	"log"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type sqlDatastore struct {
@@ -25,9 +25,9 @@ type sqlDsRecord struct {
 
 func NewSqlDatastore(db *sql.DB, maxConn int) Datastore {
 	ds := &sqlDatastore{
-		db:       db,
-		ids:      make(map[string]int64),
-		connSema: make(chan int, maxConn),
+		db:         db,
+		ids:        make(map[string]int64),
+		connSema:   make(chan int, maxConn),
 		insertCond: sync.NewCond(&sync.Mutex{}),
 	}
 	go ds.doInserts()
@@ -80,15 +80,15 @@ func (ds *sqlDatastore) doInserts() {
 			}
 
 			params = append(params,
-				"($" + strconv.Itoa(len(values)+1) +
-				", $" + strconv.Itoa(len(values)+2) +
-				", $" + strconv.Itoa(len(values)+3) + ")")
+				"($"+strconv.Itoa(len(values)+1)+
+					", $"+strconv.Itoa(len(values)+2)+
+					", $"+strconv.Itoa(len(values)+3)+")")
 			values = append(values, id, r.ts, r.value)
 		}
 
 		_, err := ds.db.Query(`
 			INSERT INTO "stats" ("metric_id", "timestamp", "value")
-			VALUES ` + strings.Join(params, ", "),
+			VALUES `+strings.Join(params, ", "),
 			values...)
 		if err != nil {
 			log.Println("doInserts:", err)
@@ -98,7 +98,7 @@ func (ds *sqlDatastore) doInserts() {
 
 func (ds *sqlDatastore) Query(name string, from, until int64) ([]Record, error) {
 	ds.connSema <- 1
-	defer func () { <-ds.connSema }()
+	defer func() { <-ds.connSema }()
 
 	id, err := ds.getMetricId(name, false)
 	if err != nil {
@@ -139,7 +139,7 @@ func (ds *sqlDatastore) Query(name string, from, until int64) ([]Record, error) 
 
 func (ds *sqlDatastore) LatestBefore(name string, ts int64) (Record, error) {
 	ds.connSema <- 1
-	defer func () { <-ds.connSema }()
+	defer func() { <-ds.connSema }()
 
 	var rec Record
 
@@ -172,7 +172,7 @@ func (ds *sqlDatastore) LatestBefore(name string, ts int64) (Record, error) {
 
 func (ds *sqlDatastore) getMetricId(name string, create bool) (int64, error) {
 	ds.connSema <- 1
-	defer func () { <-ds.connSema }()
+	defer func() { <-ds.connSema }()
 
 	ds.Lock()
 	defer ds.Unlock()
