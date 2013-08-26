@@ -1,7 +1,5 @@
 package main
 
-// TODO: persistent counter
-
 type MetricType int
 
 const (
