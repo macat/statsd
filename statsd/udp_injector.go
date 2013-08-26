@@ -6,6 +6,8 @@ import (
 	"sync"
 )
 
+const MsgMaxSize = 1024
+
 type UDPInjector struct {
 	Addr     string
 	Server   Server

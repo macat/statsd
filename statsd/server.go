@@ -49,7 +49,6 @@ const (
 	ErrNonunique       = Error("Channel names must be unique")
 )
 
-const MsgMaxSize = 1024
 const LiveLogSize = 600
 
 type server struct {
