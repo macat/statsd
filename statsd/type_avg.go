@@ -10,7 +10,7 @@ func init() {
 		persist:    []bool{false, false},
 		aggregator: createAvgAggregator,
 	}
-	registerMetricType(Avg, mt)
+	registerMetricType(Averager, mt)
 }
 
 type avgMetric struct {

@@ -8,7 +8,8 @@ const (
 	Counter = MetricType(iota)
 	Timer
 	Gauge
-	Avg
+	Averager
+	Accumulator
 	NMetricTypes = iota
 )
 

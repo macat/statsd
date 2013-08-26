@@ -178,10 +178,14 @@ func ParseMetric(m []byte) (*Metric, error) {
 		case 'g':
 			typ = Gauge
 		case 'a':
-			typ = Avg
+			typ = Averager
 		}
-	} else if n == 2 && m[0] == 'm' && m[1] == 's' {
-		typ = Timer
+	} else if n == 2 {
+		if m[0] == 'm' && m[1] == 's' {
+			typ = Timer
+		} else if m[0] == 'a' && m[1] == 'c' {
+			typ = Accumulator
+		}
 	}
 	if typ == MetricType(-1) {
 		return nil, ErrTypeInvalid
