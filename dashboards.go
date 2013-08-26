@@ -45,7 +45,7 @@ func listDashboards(t *Task) {
 	}
 	defer rows.Close()
 
-	categories := make(map[string][]map[string]interface{}, 0)
+	dashboards := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		var id, title, slug, category, creator string
 		var position int
@@ -56,24 +56,13 @@ func listDashboards(t *Task) {
 			panic(err)
 		}
 
-		dashboard := map[string]interface{}{
+		dashboards = append(dashboards, map[string]interface{}{
 			"id":       id,
 			"title":    title,
-			"slug":     slug,
 			"category": category,
 			"position": position,
 			"created":  created.Format("2006-01-02 15:04:05"),
 			"creator":  creator,
-		}
-
-		categories[category] = append(categories[category], dashboard)
-	}
-
-	dashboards := make([]map[string]interface{}, 0)
-	for category, dashboard := range categories {
-		dashboards = append(dashboards, map[string]interface{}{
-			"title":      category,
-			"dashboards": dashboard,
 		})
 	}
 
