@@ -1,13 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"log"
 	"os"
 	"path"
 	"sync"
 	"time"
-	"bytes"
 )
 
 // TODO: clean shutdown
@@ -38,7 +38,7 @@ func NewFsDatastore(dirName string) Datastore {
 	ds := &fsDatastore{
 		dirName: path.Clean(dirName) + "/",
 		streams: make(map[string]*fsDsStream),
-		clean: make(map[string]*fsDsStream),
+		clean:   make(map[string]*fsDsStream),
 	}
 	ds.Cond.L = &ds.Mutex
 	return ds
@@ -82,8 +82,8 @@ func (ds *fsDatastore) getStream(name string, keepLock bool) *fsDsStream {
 	ds.Lock()
 	if _, ok := ds.streams[name]; !ok {
 		st := &fsDsStream{
-			name: name,
-			num: ds.hashName(name),
+			name:    name,
+			num:     ds.hashName(name),
 			dirName: ds.dirName,
 		}
 		ds.streams[name] = st
@@ -113,7 +113,7 @@ func (ds *fsDatastore) write() {
 		if len(st.tail) == 0 {
 			ds.dirty[n] = ds.dirty[l-1]
 			ds.dirty[l-1] = nil
-			ds.dirty = ds.dirty[0:l-1]
+			ds.dirty = ds.dirty[0 : l-1]
 			if cap(ds.dirty) > 3*(l-1) {
 				log.Println("dirty shrink:", cap(ds.dirty), l-1)
 				x := make([]*fsDsStream, l-1, 2*(l-1))
@@ -146,7 +146,7 @@ func (ds *fsDatastore) write() {
 
 func (ds *fsDatastore) cleanUp() {
 	for {
-		time.Sleep(10*time.Second)
+		time.Sleep(10 * time.Second)
 		yy := time.Now()
 		zz := len(ds.clean)
 		ds.Lock()
@@ -195,7 +195,7 @@ func (st *fsDsStream) writeTail() error {
 		lastWr += 60
 
 		if r.Ts > lastWr {
-			binary.Write(ibuff, binary.LittleEndian, []int64{r.Ts, dsize-8})
+			binary.Write(ibuff, binary.LittleEndian, []int64{r.Ts, dsize - 8})
 			isize += 16
 			lastWr = r.Ts
 		}
@@ -303,6 +303,6 @@ func (ds *fsDatastore) hashName(name string) string {
 	x &= 0xffff
 	x %= 1000
 
-	s := []byte{'0'+byte(x / 100), '0'+byte((x / 10) % 10), '0'+byte(x % 10)}
-	return  string(s)
+	s := []byte{'0' + byte(x/100), '0' + byte((x/10)%10), '0' + byte(x%10)}
+	return string(s)
 }
