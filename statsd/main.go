@@ -18,8 +18,10 @@ func main() {
 		log.Println(err.Error())
 		return
 	}
+	_ = db
 
-	srv := NewServer(NewSqlDatastore(db, 20))
+//	srv := NewServer(NewSqlDatastore(db, 20))
+	srv := NewServer(NewFsDatastore("./data"))
 
 	go func() {
 		httpSrv := http.Server{
