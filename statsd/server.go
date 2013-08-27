@@ -98,6 +98,7 @@ func (srv *server) Start() error {
 	if err := srv.ds.Init(); err != nil {
 		return err
 	}
+	srv.lastTick = time.Now().Unix()
 	go srv.tick()
 	return nil
 }
@@ -225,17 +226,15 @@ func (srv *server) Inject(metric *Metric) error {
 	}
 
 	me := srv.getMetricEntry(metric.Type, metric.Name)
-	defer me.Unlock()
-
 	me.recvdInput = true
 	me.recvdInputTick = true
 	me.inject(metric)
+	me.Unlock()
 	return nil
 }
 
 func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 	srv.Lock()
-	defer srv.Unlock()
 
 	me := srv.metrics[typ][name]
 	if me == nil {
@@ -267,6 +266,7 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 	}
 
 	me.Lock()
+	srv.Unlock()
 	return me
 }
 
@@ -286,7 +286,6 @@ func (srv *server) getChannelDefault(typ MetricType, name string, i int, ts int6
 
 func (srv *server) tick() {
 	tickCh := time.Tick(time.Second)
-	srv.lastTick = time.Now().Unix()
 	for {
 		select {
 		case t := <-tickCh:
@@ -301,13 +300,13 @@ func (srv *server) tick() {
 
 func (srv *server) getLastTick() int64 {
 	srv.Lock()
-	defer srv.Unlock()
-	return srv.lastTick
+	lt := srv.lastTick
+	srv.Unlock()
+	return lt
 }
 
 func (srv *server) tickMetrics(ts int64) {
 	srv.Lock()
-	defer srv.Unlock()
 
 	srv.notify = make(chan int, srv.nEntries)
 	srv.lastTick = ts
@@ -321,11 +320,11 @@ func (srv *server) tickMetrics(ts int64) {
 	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
+	srv.Unlock()
 }
 
 func (srv *server) flushMetrics(ts int64) {
 	srv.Lock()
-	defer srv.Unlock()
 
 	srv.notify = make(chan int, srv.nEntries)
 	srv.lastTick = ts
@@ -339,20 +338,20 @@ func (srv *server) flushMetrics(ts int64) {
 	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
+
+	srv.Unlock()
 }
 
 func (srv *server) tickMetric(ts int64, me *metricEntry) {
 	me.Lock()
-	defer me.Unlock()
-
 	me.updateIdle()
 	me.updateLiveLog(ts)
 	srv.notify <- 1
+	me.Unlock()
 }
 
 func (srv *server) flushOrDelete(ts int64, me *metricEntry) {
 	me.Lock()
-	defer me.Unlock()
 
 	me.updateIdle()
 
@@ -365,6 +364,8 @@ func (srv *server) flushOrDelete(ts int64, me *metricEntry) {
 	} else {
 		srv.notify <- 1
 	}
+
+	me.Unlock()
 }
 
 func (me *metricEntry) updateIdle() {
@@ -399,7 +400,6 @@ func (me *metricEntry) updateLiveLog(ts int64) {
 
 func (srv *server) flushMetric(ts int64, me *metricEntry) {
 	me.Lock()
-	defer me.Unlock()
 
 	me.updateLiveLog(ts)
 
@@ -426,6 +426,7 @@ func (srv *server) flushMetric(ts int64, me *metricEntry) {
 	}
 
 	srv.notify <- 1
+	me.Unlock()
 }
 
 func (srv *server) LiveLog(name string, chs []string) ([][]float64, int64, error) {
@@ -435,7 +436,6 @@ func (srv *server) LiveLog(name string, chs []string) ([][]float64, int64, error
 	}
 
 	me := srv.getMetricEntry(typ, name)
-	defer me.Unlock()
 
 	logs, ptr := make([]*[LiveLogSize]float64, len(chs)), me.livePtr
 	for i, n := range chs {
@@ -458,6 +458,7 @@ func (srv *server) LiveLog(name string, chs []string) ([][]float64, int64, error
 		result[i+LiveLogSize-ptr] = row
 	}
 
+	me.Unlock()
 	return result, ts, nil
 }
 
@@ -553,10 +554,10 @@ func (srv *server) LiveWatch(name string, chs []string) (*Watcher, error) {
 	}
 
 	me := srv.getMetricEntry(typ, name)
-	defer me.Unlock()
 	w.me = me
 	w.Ts = me.lastTick
 	me.watchers = append(me.watchers, w)
+	me.Unlock()
 
 	go w.run()
 	return w, nil
@@ -584,17 +585,18 @@ func (srv *server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	w.C = w.out
 
 	me := srv.getMetricEntry(typ, name)
-	defer me.Unlock()
 	w.me = me
 	w.Ts = me.lastTick - ((me.lastTick-offs)%gran60+gran60)%gran60
 
 	input, err := srv.initAggregator(w.aggr, name, typ, w.Ts, w.Ts+gran60)
 	if err != nil {
+		me.Unlock()
 		return nil, err
 	}
 	feedAggregator(w.aggr, input, w.Ts, gran)
 
 	me.watchers = append(me.watchers, w)
+	me.Unlock()
 
 	go w.run()
 	return w, nil
@@ -602,8 +604,6 @@ func (srv *server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 
 func (w *Watcher) Close() {
 	w.me.Lock()
-	defer w.me.Unlock()
-
 	for i, l := 0, len(w.me.watchers); i < l; i++ {
 		if w.me.watchers[i] == w {
 			w.me.watchers[i] = w.me.watchers[l-1]
@@ -616,6 +616,7 @@ func (w *Watcher) Close() {
 			break
 		}
 	}
+	w.me.Unlock()
 }
 
 func (w *Watcher) run() {
