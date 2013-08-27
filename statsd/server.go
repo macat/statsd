@@ -355,10 +355,10 @@ func (srv *server) flushOrDelete(ts int64, me *metricEntry) {
 
 	me.updateIdle()
 
-	if me.recvdInput {
+	if me.recvdInput || len(me.watcher) != 0 {
 		me.recvdInput = false
 		go srv.flushMetric(ts, me)
-	} else if me.idleTicks > LiveLogSize && len(me.watchers) == 0 {
+	} else if me.idleTicks > LiveLogSize {
 		srv.nEntries--
 		delete(srv.metrics[me.typ], me.name)
 	} else {
