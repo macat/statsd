@@ -8,8 +8,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -21,7 +23,8 @@ func main() {
 	_ = db
 
 	//	srv := NewServer(NewSqlDatastore(db, 20))
-	srv := NewServer(NewFsDatastore("./data"))
+	ds := NewFsDatastore("./data")
+	srv := NewServer(ds)
 
 	go func() {
 		httpSrv := http.Server{

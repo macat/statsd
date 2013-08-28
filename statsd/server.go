@@ -41,7 +41,6 @@ const (
 	ErrTypeInvalid     = Error("Invalid type")
 	ErrValueInvalid    = Error("Invalid value")
 	ErrSamplingInvalid = Error("Invalid sample rate")
-	ErrNoData          = Error("No data")
 	ErrChannelInvalid  = Error("No such channel")
 	ErrMixingTypes     = Error("Cannot mix different metric types")
 	ErrInvalid         = Error("Invalid paramter")
@@ -95,7 +94,7 @@ func NewServer(ds Datastore) Server {
 }
 
 func (srv *server) Start() error {
-	if err := srv.ds.Init(); err != nil {
+	if err := srv.ds.Open(); err != nil {
 		return err
 	}
 	srv.lastTick = time.Now().Unix()

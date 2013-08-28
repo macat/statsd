@@ -34,7 +34,7 @@ func NewSqlDatastore(db *sql.DB, maxConn int) Datastore {
 	return ds
 }
 
-func (ds *sqlDatastore) Init() error {
+func (ds *sqlDatastore) Open() error {
 	rows, err := ds.db.Query(`SELECT "id", "name" FROM "metrics"`)
 	if err != nil {
 		return err
@@ -49,6 +49,11 @@ func (ds *sqlDatastore) Init() error {
 		ds.ids[name] = id
 	}
 
+	return nil
+}
+
+func (ds *sqlDatastore) Close() error {
+	// TODO
 	return nil
 }
 
