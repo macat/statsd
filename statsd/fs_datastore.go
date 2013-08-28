@@ -22,7 +22,7 @@ type fsDatastore struct {
 
 type fsDsStream struct {
 	sync.Mutex
-	name, num    string
+	name         string
 	dirName      string
 	tail         []Record
 	dat, idx     *os.File
@@ -68,7 +68,6 @@ func (ds *fsDatastore) getStream(name string) *fsDsStream {
 	if _, ok := ds.streams[name]; !ok {
 		st := &fsDsStream{
 			name:    name,
-			num:     ds.hashName(name),
 			dirName: ds.dirName,
 		}
 		ds.streams[name] = st
@@ -130,7 +129,7 @@ func (ds *fsDatastore) write() {
 }
 
 func (st *fsDsStream) fileName() string {
-	return st.dirName + st.num + "/" + st.name
+	return st.dirName + st.name
 }
 
 func (st *fsDsStream) writeTail() error {
