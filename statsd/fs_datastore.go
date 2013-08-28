@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"sync"
-	"time"
 )
 
 // TODO: clean shutdown
@@ -18,8 +17,7 @@ type fsDatastore struct {
 	sync.Cond
 	dirName string
 	streams map[string]*fsDsStream
-	dirty   []*fsDsStream
-	clean   map[string]*fsDsStream
+	queue   []*fsDsStream
 }
 
 type fsDsStream struct {
@@ -31,14 +29,12 @@ type fsDsStream struct {
 	valid        bool
 	lastWr       int64
 	dsize, isize int64
-	dirty        bool
 }
 
 func NewFsDatastore(dirName string) Datastore {
 	ds := &fsDatastore{
 		dirName: path.Clean(dirName) + "/",
 		streams: make(map[string]*fsDsStream),
-		clean:   make(map[string]*fsDsStream),
 	}
 	ds.Cond.L = &ds.Mutex
 	return ds
@@ -47,24 +43,13 @@ func NewFsDatastore(dirName string) Datastore {
 func (ds *fsDatastore) Init() error {
 	// TODO
 	go ds.write()
-	go ds.cleanUp()
 	return nil
 }
 
 func (ds *fsDatastore) Insert(name string, r Record) error {
-	st := ds.getStream(name, true)
+	st := ds.getStream(name)
 	st.tail = append(st.tail, r)
-	if !st.dirty {
-		st.dirty = true
-		ds.dirty = append(ds.dirty, st)
-		delete(ds.clean, name)
-		if len(ds.dirty) == 1 {
-			ds.Signal()
-		}
-		log.Println("moving to dirty list:", name)
-	}
 	st.Unlock()
-	ds.Unlock()
 	return nil
 }
 
@@ -78,7 +63,7 @@ func (ds *fsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 	return Record{}, ErrNoData
 }
 
-func (ds *fsDatastore) getStream(name string, keepLock bool) *fsDsStream {
+func (ds *fsDatastore) getStream(name string) *fsDsStream {
 	ds.Lock()
 	if _, ok := ds.streams[name]; !ok {
 		st := &fsDsStream{
@@ -87,13 +72,15 @@ func (ds *fsDatastore) getStream(name string, keepLock bool) *fsDsStream {
 			dirName: ds.dirName,
 		}
 		ds.streams[name] = st
-		ds.clean[name] = st
+		ds.queue = append(ds.queue, st)
+		if len(ds.queue) == 1 {
+			ds.Signal()
+		}
+		log.Println("loaded: ", name)
 	}
 	st := ds.streams[name]
 	st.Lock()
-	if !keepLock {
-		ds.Unlock()
-	}
+	ds.Unlock()
 	return st
 }
 
@@ -101,34 +88,32 @@ func (ds *fsDatastore) write() {
 	n := -1
 	for {
 		ds.Lock()
-		if len(ds.dirty) == 0 {
+		if len(ds.queue) == 0 {
 			ds.Wait()
 		}
-		l := len(ds.dirty)
+		l := len(ds.queue)
 		if n++; n >= l {
 			n = 0
 		}
-		st := ds.dirty[n]
+		st := ds.queue[n]
 		st.Lock()
 		if len(st.tail) == 0 {
-			ds.dirty[n] = ds.dirty[l-1]
-			ds.dirty[l-1] = nil
-			ds.dirty = ds.dirty[0 : l-1]
-			if cap(ds.dirty) > 3*(l-1) {
-				log.Println("dirty shrink:", cap(ds.dirty), l-1)
+			ds.queue[n] = ds.queue[l-1]
+			ds.queue[l-1] = nil
+			ds.queue = ds.queue[0 : l-1]
+			delete(ds.streams, st.name)
+			if cap(ds.queue) > 3*(l-1) {
+				log.Println("queue shrink:", cap(ds.queue), l-1)
 				x := make([]*fsDsStream, l-1, 2*(l-1))
-				copy(x, ds.dirty)
-				ds.dirty = x
+				copy(x, ds.queue)
+				ds.queue = x
 			}
-			ds.clean[st.name] = st
-			st.dirty = false
 			st.Unlock()
 			ds.Unlock()
-			log.Println("moving to clean list:", st.name)
+			log.Println("delete:", st.name)
 			continue
 		} else {
 			ds.Unlock()
-
 			if err := st.writeTail(); err != nil {
 				st.valid = false
 				log.Println("write:", err)
@@ -141,29 +126,6 @@ func (ds *fsDatastore) write() {
 			}
 			st.Unlock()
 		}
-	}
-}
-
-func (ds *fsDatastore) cleanUp() {
-	for {
-		time.Sleep(10 * time.Second)
-		yy := time.Now()
-		zz := len(ds.clean)
-		ds.Lock()
-		i := 0
-		for n, st := range ds.clean {
-			log.Println("delete:", n)
-			st.Lock()
-			delete(ds.streams, n)
-			delete(ds.clean, n)
-			st.Unlock()
-			if i++; i >= 100 {
-				break
-			}
-		}
-		xx := time.Now()
-		log.Println("cleanUp:", zz, xx.Sub(yy).Seconds())
-		ds.Unlock()
 	}
 }
 
