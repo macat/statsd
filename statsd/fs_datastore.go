@@ -11,6 +11,7 @@ import (
 )
 
 // TODO: remove debug info
+// TODO: fsDsRecord
 
 type FsDatastore struct {
 	Dir, dir string
@@ -26,12 +27,17 @@ type fsDsStream struct {
 	sync.Mutex
 	name     string
 	dir      string
-	tail     []Record
+	tail     []fsDsRecord
 	dat, idx *os.File
 	valid    bool
 	lastWr   int64
 	dsize    int64
 	isize    int64
+}
+
+type fsDsRecord struct {
+	ts    int64
+	value float64
 }
 
 func NewFsDatastore(dir string) *FsDatastore {
@@ -91,7 +97,7 @@ func (ds *FsDatastore) Insert(name string, r Record) error {
 	if st == nil {
 		return Error("Datastore not running")
 	}
-	st.tail = append(st.tail, r)
+	st.tail = append(st.tail, fsDsRecord{ts: r.Ts, value: r.Value})
 	st.Unlock()
 	return nil
 }
@@ -131,7 +137,7 @@ func (ds *FsDatastore) getStream(name string) *fsDsStream {
 	return st
 }
 
-func (ds *FsDatastore) createStream(name string, tail []Record) {
+func (ds *FsDatastore) createStream(name string, tail []fsDsRecord) {
 	st := &fsDsStream{
 		name: name,
 		dir:  ds.dir,
@@ -184,7 +190,7 @@ func (ds *FsDatastore) write(notify chan int) {
 			}
 			if cap(st.tail) > 3*len(st.tail) {
 				log.Println("tail shrink:", cap(st.tail), len(st.tail))
-				st.tail = make([]Record, 0, 2*len(st.tail))
+				st.tail = make([]fsDsRecord, 0, 2*len(st.tail))
 			} else {
 				st.tail = st.tail[:0]
 			}
@@ -282,7 +288,7 @@ func (ds *FsDatastore) loadTails() error {
 		if err = binary.Read(rd, le, &name); err != nil {
 			return err
 		}
-		tail := make([]Record, ltail)
+		tail := make([]fsDsRecord, ltail)
 		if err = binary.Read(rd, le, &tail); err != nil {
 			return err
 		}
@@ -306,22 +312,22 @@ func (st *fsDsStream) writeTail() error {
 	dsize, isize, lastWr := st.dsize, st.isize, st.lastWr
 
 	for _, r := range st.tail {
-		if r.Ts%60 != 0 {
+		if r.ts%60 != 0 {
 			log.Println("fsDsStream.writeTail: Timestamp not divisible by 60")
 			continue
-		} else if lastWr >= r.Ts {
+		} else if lastWr >= r.ts {
 			log.Println("fsDsStream.writeTail: Timestamp in the past")
 			continue
 		}
 
-		binary.Write(dbuff, binary.LittleEndian, r.Value)
+		binary.Write(dbuff, binary.LittleEndian, r.value)
 		dsize += 8
 		lastWr += 60
 
-		if r.Ts > lastWr {
-			binary.Write(ibuff, binary.LittleEndian, []int64{r.Ts, dsize - 8})
+		if r.ts > lastWr {
+			binary.Write(ibuff, binary.LittleEndian, []int64{r.ts, dsize - 8})
 			isize += 16
-			lastWr = r.Ts
+			lastWr = r.ts
 		}
 	}
 
