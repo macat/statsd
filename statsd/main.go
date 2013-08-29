@@ -26,8 +26,7 @@ func main() {
 		return
 	}
 
-	for i := 0; i < 250; i++ {
-		//	srv := NewServer(NewSqlDatastore(db, 20))
+	for i := 0; i < 1; i++ {
 		srv := NewServer(ds, "srv"+strconv.Itoa(i)+"/")
 
 		if i == 0 {

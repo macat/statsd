@@ -12,13 +12,16 @@ import (
 
 // TODO: remove debug info
 
+const fsDsPartitions = 8
+
 type FsDatastore struct {
 	Dir, dir string
-	mu       sync.Mutex
-	cond     sync.Cond
+	gmu      sync.Mutex
+	mu       [fsDsPartitions]sync.Mutex
+	cond     [fsDsPartitions]sync.Cond
 	notify   chan int
-	streams  map[string]*fsDsStream
-	queue    []*fsDsStream
+	streams  [fsDsPartitions]map[string]*fsDsStream
+	queue    [fsDsPartitions][]*fsDsStream
 	running  bool
 }
 
@@ -44,8 +47,16 @@ func NewFsDatastore(dir string) *FsDatastore {
 }
 
 func (ds *FsDatastore) Open() error {
-	ds.mu.Lock()
-	defer ds.mu.Unlock()
+	ds.gmu.Lock()
+	for p := 0; p < fsDsPartitions; p++ {
+		ds.mu[p].Lock()
+	}
+	defer func() {
+		for p := 0; p < fsDsPartitions; p++ {
+			ds.mu[p].Unlock()
+		}
+		ds.gmu.Unlock()
+	}()
 	if ds.running {
 		return Error("Datastore already running")
 	}
@@ -57,22 +68,29 @@ func (ds *FsDatastore) Open() error {
 	}
 
 	ds.dir = ds.Dir + string(os.PathSeparator)
-	ds.streams = make(map[string]*fsDsStream)
-	ds.cond.L = &ds.mu
+	for p := 0; p < fsDsPartitions; p++ {
+		ds.streams[p] = make(map[string]*fsDsStream)
+		ds.cond[p].L = &ds.mu[p]
+	}
 	ds.notify = make(chan int)
 	if err := ds.loadTails(); err != nil {
 		return err
 	}
 	ds.running = true
-	go ds.write(ds.notify)
+	for p := 0; p < fsDsPartitions; p++ {
+		go ds.write(ds.notify, p)
+	}
 	return nil
 }
 
 func (ds *FsDatastore) Close() error {
-	ds.mu.Lock()
+	ds.gmu.Lock()
 	if !ds.running {
-		ds.mu.Unlock()
+		ds.gmu.Unlock()
 		return Error("Datastore not running")
+	}
+	for p := 0; p < fsDsPartitions; p++ {
+		ds.mu[p].Lock()
 	}
 	if err := ds.saveTails(); err != nil {
 		log.Println("FsDatastore.Close:", err)
@@ -80,13 +98,16 @@ func (ds *FsDatastore) Close() error {
 			log.Println("FsDatastore.Close:", err)
 		}
 	}
-	ds.streams = nil
-	ds.queue = nil
-	ds.running = false
-	ds.cond.Signal()
 	notify := ds.notify
-	ds.mu.Unlock()
-	<-notify
+	ds.running = false
+	for p := 0; p < fsDsPartitions; p++ {
+		ds.streams[p] = nil
+		ds.queue[p] = nil
+		ds.cond[p].Signal()
+		ds.mu[p].Unlock()
+		<-notify
+	}
+	ds.gmu.Unlock()
 	return nil
 }
 
@@ -122,67 +143,68 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 }
 
 func (ds *FsDatastore) getStream(name string) *fsDsStream {
-	ds.mu.Lock()
+	p := ds.partition(name)
+	ds.mu[p].Lock()
 	if !ds.running {
-		ds.mu.Unlock()
+		ds.mu[p].Unlock()
 		return nil
 	}
-	if _, ok := ds.streams[name]; !ok {
-		ds.createStream(name, nil)
+	if _, ok := ds.streams[p][name]; !ok {
+		ds.createStream(name, p, nil)
 	}
-	st := ds.streams[name]
+	st := ds.streams[p][name]
 	st.Lock()
-	ds.mu.Unlock()
+	ds.mu[p].Unlock()
 	return st
 }
 
-func (ds *FsDatastore) createStream(name string, tail []fsDsRecord) {
+func (ds *FsDatastore) createStream(name string, p int, tail []fsDsRecord) {
 	st := &fsDsStream{
 		name: name,
 		dir:  ds.dir,
 		tail: tail,
 	}
-	ds.streams[name] = st
-	ds.queue = append(ds.queue, st)
-	if len(ds.queue) == 1 {
-		ds.cond.Signal()
+	ds.streams[p][name] = st
+	ds.queue[p] = append(ds.queue[p], st)
+	if len(ds.queue[p]) == 1 {
+		ds.cond[p].Signal()
 	}
 	log.Println("loaded: ", name)
 }
 
-func (ds *FsDatastore) write(notify chan int) {
+func (ds *FsDatastore) write(notify chan int, p int) {
 	for n := -1; ; {
-		ds.mu.Lock()
-		if len(ds.queue) == 0 && ds.running {
-			ds.cond.Wait()
+		ds.mu[p].Lock()
+		if len(ds.queue[p]) == 0 && ds.running {
+			ds.cond[p].Wait()
 		}
 		if !ds.running {
-			ds.mu.Unlock()
+			ds.mu[p].Unlock()
 			notify <- 1
 			return
 		}
-		l := len(ds.queue)
+		l := len(ds.queue[p])
 		if n++; n >= l {
 			n = 0
 		}
-		st := ds.queue[n]
+		st := ds.queue[p][n]
 		st.Lock()
 		if len(st.tail) == 0 {
-			ds.queue[n] = ds.queue[l-1]
-			ds.queue[l-1] = nil
-			ds.queue = ds.queue[0 : l-1]
-			delete(ds.streams, st.name)
-			if cap(ds.queue) > 3*(l-1) {
-				log.Println("queue shrink:", cap(ds.queue), l-1)
+			ds.queue[p][n] = ds.queue[p][l-1]
+			ds.queue[p][l-1] = nil
+			ds.queue[p] = ds.queue[p][0 : l-1]
+			delete(ds.streams[p], st.name)
+			if cap(ds.queue[p]) > 3*(l-1) {
+				log.Println("queue shrink:", cap(ds.queue[p]), l-1)
 				x := make([]*fsDsStream, l-1, 2*(l-1))
-				copy(x, ds.queue)
-				ds.queue = x
+				copy(x, ds.queue[p])
+				ds.queue[p] = x
 			}
 			st.Unlock()
-			ds.mu.Unlock()
+			ds.mu[p].Unlock()
 			log.Println("delete:", st.name)
 		} else {
-			ds.mu.Unlock()
+			ds.mu[p].Unlock()
 			if err := st.writeTail(); err != nil {
 				st.valid = false
 				log.Println("write:", err)
@@ -209,7 +231,12 @@ func (ds *FsDatastore) saveTails() error {
 	defer f.Close()
 	wr, le := bufio.NewWriter(f), binary.LittleEndian
 
-	if err = binary.Write(wr, le, uint64(len(ds.streams))); err != nil {
+	ntails := 0
+	for _, streams := range ds.streams {
+		ntails += len(streams)
+	}
+
+	if err = binary.Write(wr, le, uint64(ntails)); err != nil {
 		return err
 	}
 
@@ -218,24 +245,26 @@ func (ds *FsDatastore) saveTails() error {
 		st *fsDsStream
 	)
 	i := 0
-	for n, st = range ds.streams {
-		i++
-		st.Lock()
-		name := []byte(n)
-		if err = binary.Write(wr, le, uint64(len(name))); err != nil {
-			break
+	for _, streams := range ds.streams {
+		for n, st = range streams {
+			i++
+			st.Lock()
+			name := []byte(n)
+			if err = binary.Write(wr, le, uint64(len(name))); err != nil {
+				break
+			}
+			if err = binary.Write(wr, le, uint64(len(st.tail))); err != nil {
+				break
+			}
+			if err = binary.Write(wr, le, name); err != nil {
+				break
+			}
+			if err = binary.Write(wr, le, st.tail); err != nil {
+				break
+			}
+			st.Unlock()
+			log.Println("tail saved:", i)
 		}
-		if err = binary.Write(wr, le, uint64(len(st.tail))); err != nil {
-			break
-		}
-		if err = binary.Write(wr, le, name); err != nil {
-			break
-		}
-		if err = binary.Write(wr, le, st.tail); err != nil {
-			break
-		}
-		st.Unlock()
-		log.Println("tail saved:", i)
 	}
 	if err != nil {
 		st.Unlock()
@@ -291,7 +320,8 @@ func (ds *FsDatastore) loadTails() error {
 		if err = binary.Read(rd, le, &tail); err != nil {
 			return err
 		}
-		ds.createStream(string(name), tail)
+		strName := string(name)
+		ds.createStream(strName, ds.partition(strName), tail)
 	}
 
 	finish := time.Now()
@@ -426,7 +456,7 @@ func (st *fsDsStream) getIdxEntry(n int64) (ts int64, pos int64, err error) {
 	return data[0], data[1], nil
 }
 
-func (ds *FsDatastore) hashName(name string) string {
+func (ds *FsDatastore) partition(name string) int {
 	var x uint64
 	for _, ch := range name {
 		for i := 15; i >= 0; i-- {
@@ -434,9 +464,5 @@ func (ds *FsDatastore) hashName(name string) string {
 			x ^= 0x1edc6f41 * ((x >> 32) ^ (uint64(ch)>>uint(i))&1)
 		}
 	}
-	x &= 0xffff
-	x %= 1000
-
-	s := []byte{'0' + byte(x/100), '0' + byte((x/10)%10), '0' + byte(x%10)}
-	return string(s)
+	return x 0xffff
 }
