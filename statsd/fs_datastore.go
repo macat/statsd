@@ -158,7 +158,7 @@ func (ds *FsDatastore) getStream(name string) *fsDsStream {
 	return st
 }
 
-func (ds *FsDatastore) createStream(name string, p int, tail []fsDsRecord) {
+func (ds *FsDatastore) createStream(name string, p uint, tail []fsDsRecord) {
 	st := &fsDsStream{
 		name: name,
 		dir:  ds.dir,
@@ -456,7 +456,7 @@ func (st *fsDsStream) getIdxEntry(n int64) (ts int64, pos int64, err error) {
 	return data[0], data[1], nil
 }
 
-func (ds *FsDatastore) partition(name string) int {
+func (ds *FsDatastore) partition(name string) uint {
 	var x uint64
 	for _, ch := range name {
 		for i := 15; i >= 0; i-- {
@@ -464,5 +464,5 @@ func (ds *FsDatastore) partition(name string) int {
 			x ^= 0x1edc6f41 * ((x >> 32) ^ (uint64(ch)>>uint(i))&1)
 		}
 	}
-	return x 0xffff
+	return uint(x & 0xffff)
 }
