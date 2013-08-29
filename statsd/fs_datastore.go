@@ -12,7 +12,7 @@ import (
 
 // TODO: remove debug info
 
-const fsDsPartitions = 8
+const fsDsPartitions = 4
 
 type FsDatastore struct {
 	Dir, dir string
@@ -464,5 +464,5 @@ func (ds *FsDatastore) partition(name string) uint {
 			x ^= 0x1edc6f41 * ((x >> 32) ^ (uint64(ch)>>uint(i))&1)
 		}
 	}
-	return uint(x & 0xffff)
+	return uint((x & 0xffff) % fsDsPartitions)
 }
