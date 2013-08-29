@@ -53,6 +53,7 @@ const LiveLogSize = 600
 type server struct {
 	sync.Mutex
 	ds       Datastore
+	prefix   string
 	metrics  [NMetricTypes]map[string]*metricEntry
 	nEntries int
 	lastTick int64
@@ -85,8 +86,8 @@ type Watcher struct {
 	offs int64
 }
 
-func NewServer(ds Datastore) Server {
-	srv := &server{ds: ds}
+func NewServer(ds Datastore, prefix string) Server {
+	srv := &server{ds: ds, prefix: prefix}
 	for i := range srv.metrics {
 		srv.metrics[i] = make(map[string]*metricEntry)
 	}
@@ -94,9 +95,6 @@ func NewServer(ds Datastore) Server {
 }
 
 func (srv *server) Start() error {
-	if err := srv.ds.Open(); err != nil {
-		return err
-	}
 	srv.lastTick = time.Now().Unix()
 	go srv.tick()
 	return nil
@@ -273,7 +271,7 @@ func (srv *server) getChannelDefault(typ MetricType, name string, i int, ts int6
 	mt := metricTypes[typ]
 	def := mt.defaults[i]
 	if mt.persist[i] {
-		rec, err := srv.ds.LatestBefore(name+":"+mt.channels[i], ts)
+		rec, err := srv.ds.LatestBefore(srv.prefix+name+":"+mt.channels[i], ts)
 		if err == nil {
 			def = rec.Value
 		} else if err != ErrNoData {
@@ -404,7 +402,7 @@ func (srv *server) flushMetric(ts int64, me *metricEntry) {
 
 	data := me.flush()
 	for i, n := range metricTypes[me.typ].channels {
-		err := srv.ds.Insert(me.name+":"+n, Record{Ts: ts, Value: data[i]})
+		err := srv.ds.Insert(srv.prefix+me.name+":"+n, Record{ts, data[i]})
 		if err != nil {
 			log.Println("flushMetric:", err)
 		}
@@ -502,7 +500,7 @@ func (srv *server) initAggregator(aggr aggregator, name string, typ MetricType, 
 	input, tmp := make([][]Record, len(inChs)), make([]float64, len(inChs))
 	for i, j := range inChs {
 		ch := metricTypes[typ].channels[j]
-		in, err := srv.ds.Query(name+":"+ch, from, until)
+		in, err := srv.ds.Query(srv.prefix+name+":"+ch, from, until)
 		if err != nil {
 			return nil, err
 		}

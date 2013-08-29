@@ -8,10 +8,8 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 func main() {
@@ -22,26 +20,35 @@ func main() {
 	}
 	_ = db
 
-	//	srv := NewServer(NewSqlDatastore(db, 20))
 	ds := NewFsDatastore("./data")
-	srv := NewServer(ds)
-
-	go func() {
-		httpSrv := http.Server{
-			Addr:    ":6001",
-			Handler: srv.(*server),
-		}
-		httpSrv.ListenAndServe()
-	}()
-
-	err = srv.Start()
-	if err != nil {
-		log.Println(err.Error())
+	if err := ds.Open(); err != nil {
+		log.Println(err)
 		return
 	}
-	inj := UDPInjector{Addr: ":6000", Server: srv}
-	inj.Start()
 
+	for i := 0; i < 250; i++ {
+		//	srv := NewServer(NewSqlDatastore(db, 20))
+		srv := NewServer(ds, "srv"+strconv.Itoa(i)+"/")
+
+		if i == 0 {
+			go func() {
+				httpSrv := http.Server{
+					Addr:    ":6000",
+					Handler: srv.(*server),
+				}
+				httpSrv.ListenAndServe()
+			}()
+		}
+
+		err = srv.Start()
+		if err != nil {
+			log.Println(err.Error())
+			return
+		}
+
+		inj := UDPInjector{Addr: ":" + strconv.Itoa(6000+i), Server: srv}
+		inj.Start()
+	}
 	<-make(chan int)
 }
 

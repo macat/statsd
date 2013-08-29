@@ -11,7 +11,6 @@ import (
 )
 
 // TODO: remove debug info
-// TODO: fsDsRecord
 
 type FsDatastore struct {
 	Dir, dir string
