@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -108,104 +107,14 @@ func (srv *server) InjectBytes(msg []byte) {
 		metric, err := ParseMetric(msg[j+1 : i])
 		j = i
 		if err != nil {
-			log.Println("ParseMetric:", err)
+			log.Println("Server.ParseMetric:", err)
 			continue
 		}
 		err = srv.Inject(metric)
 		if err != nil {
-			log.Println("Inject:", err)
+			log.Println("Server.Inject:", err)
 		}
 	}
-}
-
-func ParseMetric(m []byte) (*Metric, error) {
-	// See https://github.com/b/statsd_spec
-	var n int
-
-	if len(m) == 0 {
-		return nil, ErrNoName
-	}
-	n = -1
-	for i, ch := range m {
-		if ch == ':' {
-			n = i
-			break
-		} else if ch == '/' || ch == 0 {
-			return nil, ErrNameInvalid
-		}
-	}
-	if n == 0 {
-		return nil, ErrNoName
-	} else if n == -1 || n == len(m)-1 {
-		return nil, ErrNoValue
-	}
-	name := m[:n]
-
-	n, m = -1, m[n+1:]
-	for i, ch := range m {
-		if ch == '|' {
-			n = i
-			break
-		}
-	}
-	if n == 0 {
-		return nil, ErrNoValue
-	} else if n == -1 || n == len(m)-1 {
-		return nil, ErrNoType
-	}
-	value, err := strconv.ParseFloat(string(m[:n]), 64)
-	if err != nil {
-		return nil, ErrValueInvalid
-	}
-
-	n, m = -1, m[n+1:]
-	for i, ch := range m {
-		if ch == '|' {
-			n = i
-			break
-		}
-	}
-	if n == -1 {
-		n = len(m)
-	}
-	typ := MetricType(-1)
-	if n == 1 {
-		switch m[0] {
-		case 'c':
-			typ = Counter
-		case 'g':
-			typ = Gauge
-		case 'a':
-			typ = Averager
-		}
-	} else if n == 2 {
-		if m[0] == 'm' && m[1] == 's' {
-			typ = Timer
-		} else if m[0] == 'a' && m[1] == 'c' {
-			typ = Accumulator
-		}
-	}
-	if typ == MetricType(-1) {
-		return nil, ErrTypeInvalid
-	}
-
-	sr := 1.0
-	if n != len(m) {
-		if n == len(m)-1 {
-			return nil, ErrNoSampling
-		}
-		if m[n+1] != '@' {
-			return nil, ErrSamplingInvalid
-		}
-		s, err := strconv.ParseFloat(string(m[n+2:]), 64)
-		if err != nil || s <= 0 {
-			return nil, ErrSamplingInvalid
-		}
-
-		sr = s
-	}
-
-	return &Metric{string(name), typ, value, sr}, nil
 }
 
 func (srv *server) Inject(metric *Metric) error {
@@ -275,7 +184,7 @@ func (srv *server) getChannelDefault(typ MetricType, name string, i int, ts int6
 		if err == nil {
 			def = rec.Value
 		} else if err != ErrNoData {
-			log.Println("getChannelDefault:", err)
+			log.Println("Server.getChannelDefault:", err)
 		}
 	}
 	return def
@@ -404,7 +313,7 @@ func (srv *server) flushMetric(ts int64, me *metricEntry) {
 	for i, n := range metricTypes[me.typ].channels {
 		err := srv.ds.Insert(srv.prefix+me.name+":"+n, Record{ts, data[i]})
 		if err != nil {
-			log.Println("flushMetric:", err)
+			log.Println("Server.flushMetric:", err)
 		}
 	}
 
