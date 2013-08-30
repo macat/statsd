@@ -394,8 +394,8 @@ func (srv *server) Log(name string, chs []string, from, length, gran int64) ([][
 	}
 
 	output := make([][]float64, length)
-	for i, ts := int64(0), from+60; i < length; i++ {
-		input = feedAggregator(aggr, input, ts, gran)
+	for i, ts := int64(0), from; i < length; i++ {
+		feedAggregator(aggr, input, ts, gran)
 		ts += gran60
 		output[i] = aggr.get()
 	}
@@ -419,9 +419,10 @@ func (srv *server) initAggregator(aggr aggregator, name string, typ MetricType, 
 	return input, nil
 }
 
-func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) [][]Record {
+func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) {
 	tmp := make([]float64, len(in))
 	for j := int64(0); j < gran; j++ {
+		ts += 60
 		missing := false
 		for k := range tmp {
 			for len(in[k]) > 0 && in[k][0].Ts < ts {
@@ -436,9 +437,7 @@ func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) [][]Record {
 		if !missing {
 			aggr.put(tmp)
 		}
-		ts += 60
 	}
-	return in
 }
 
 func (srv *server) LiveWatch(name string, chs []string) (*Watcher, error) {
