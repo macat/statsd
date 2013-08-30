@@ -136,7 +136,7 @@ func (ds *FsDatastore) Insert(name string, r Record) error {
 
 func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
 	s, err := ds.makeSnapshot(name)
-	if s != nil {
+	if err != nil {
 		return []Record{}, err
 	}
 	defer s.close()
