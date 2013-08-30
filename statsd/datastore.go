@@ -6,8 +6,11 @@ type Record struct {
 }
 
 type Datastore interface {
-	Init() error
+	Open() error
+	Close() error
 	Insert(name string, r Record) error
 	Query(name string, form, until int64) ([]Record, error)
 	LatestBefore(name string, ts int64) (Record, error)
 }
+
+const ErrNoData = Error("No data")

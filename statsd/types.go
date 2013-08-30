@@ -6,7 +6,8 @@ const (
 	Counter = MetricType(iota)
 	Timer
 	Gauge
-	Avg
+	Averager
+	Accumulator
 	NMetricTypes = iota
 )
 
@@ -16,7 +17,8 @@ var (
 )
 
 type metric interface {
-	inject(metric *Metric)
+	init([]float64)
+	inject(*Metric)
 	tick() []float64
 	flush() []float64
 }

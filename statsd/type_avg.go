@@ -4,35 +4,38 @@ import "math"
 
 func init() {
 	mt := metricType{
-		create:   func() metric { return &avgMetric{} },
-		channels: []string{"avg", "avg-cnt"},
-		defaults: []float64{math.NaN(), 0},
-		persist:  []bool{false, false},
+		create:     func() metric { return &avgMetric{} },
+		channels:   []string{"avg", "avg-cnt"},
+		defaults:   []float64{math.NaN(), 0},
+		persist:    []bool{false, false},
 		aggregator: createAvgAggregator,
 	}
-	registerMetricType(Avg, mt)
+	registerMetricType(Averager, mt)
 }
 
 type avgMetric struct {
 	tickSum, tickCount, sum, count float64
 }
 
-func (b *avgMetric) inject(metric *Metric) {
-	b.tickSum += metric.Value / metric.SampleRate
-	b.tickCount += 1 / metric.SampleRate
+func (m *avgMetric) init([]float64) {
 }
 
-func (b *avgMetric) tick() []float64 {
-	sum, count := b.tickSum, b.tickCount
-	b.tickSum, b.tickCount = 0, 0
-	b.sum += sum
-	b.count += count
+func (m *avgMetric) inject(metric *Metric) {
+	m.tickSum += metric.Value / metric.SampleRate
+	m.tickCount += 1 / metric.SampleRate
+}
+
+func (m *avgMetric) tick() []float64 {
+	sum, count := m.tickSum, m.tickCount
+	m.tickSum, m.tickCount = 0, 0
+	m.sum += sum
+	m.count += count
 	return []float64{sum / count, count}
 }
 
-func (b *avgMetric) flush() []float64 {
-	sum, count := b.sum, b.count
-	b.sum, b.count = 0, 0
+func (m *avgMetric) flush() []float64 {
+	sum, count := m.sum, m.count
+	m.sum, m.count = 0, 0
 	return []float64{sum / count, count}
 }
 

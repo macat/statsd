@@ -7,7 +7,6 @@ import (
 	_ "github.com/lib/pq"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,22 +18,37 @@ func main() {
 		log.Println(err.Error())
 		return
 	}
+	_ = db
 
-	srv := NewServer(&net.UDPAddr{Port: 6000}, NewSqlDatastore(db, 20))
-
-	go func() {
-		httpSrv := http.Server{
-			Addr:    ":6001",
-			Handler: srv.(*server),
-		}
-		httpSrv.ListenAndServe()
-	}()
-
-	err = srv.Serve()
-	if err != nil {
-		log.Println(err.Error())
+	ds := NewFsDatastore("./data")
+	if err := ds.Open(); err != nil {
+		log.Println(err)
 		return
 	}
+
+	for i := 0; i < 1; i++ {
+		srv := NewServer(ds, "srv"+strconv.Itoa(i)+"/")
+
+		if i == 0 {
+			go func() {
+				httpSrv := http.Server{
+					Addr:    ":6000",
+					Handler: srv.(*server),
+				}
+				httpSrv.ListenAndServe()
+			}()
+		}
+
+		err = srv.Start()
+		if err != nil {
+			log.Println(err.Error())
+			return
+		}
+
+		inj := UDPInjector{Addr: ":" + strconv.Itoa(6000+i), Server: srv}
+		inj.Start()
+	}
+	<-make(chan int)
 }
 
 func (srv *server) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {
