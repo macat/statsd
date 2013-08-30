@@ -12,7 +12,11 @@ import (
 
 // TODO: remove debug info
 
-const fsDsPartitions = 4
+const (
+	fsDsPartitions = 4
+	fsDsISize      = 16
+	fsDsDSize      = 8
+)
 
 type FsDatastore struct {
 	Dir, dir string
@@ -131,16 +135,11 @@ func (ds *FsDatastore) Insert(name string, r Record) error {
 }
 
 func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
-	st := ds.getStream(name)
-	if st == nil {
-		return nil, Error("Datastore not running")
+	s, err := ds.makeSnapshot(name)
+	if s != nil {
+		return []Record{}, err
 	}
-	s, err := st.makeSnapshot()
-	if err != nil {
-		st.Unlock()
-		return nil, err
-	}
-	st.Unlock()
+	defer s.close()
 
 	// TODO
 	_ = s
@@ -149,21 +148,56 @@ func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
 }
 
 func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
-	st := ds.getStream(name)
-	if st == nil {
-		return Record{}, Error("Datastore not running")
-	}
-	s, err := st.makeSnapshot()
+	s, err := ds.makeSnapshot(name)
 	if err != nil {
-		st.Unlock()
 		return Record{}, err
 	}
-	st.Unlock()
+	defer s.close()
 
-	// TODO
-	_ = s
+	ts -= ts % 60
 
-	return Record{}, ErrNoData
+	log.Println("latest:", name, ts)
+	if n := s.findTail(ts); n != -1 {
+		log.Println("latest:", name, "found in tail")
+		return Record{Ts: s.tail[n].ts, Value: s.tail[n].value}, nil
+	}
+
+	n, err := s.findIdx(ts)
+	if err != nil {
+		return Record{}, err
+	}
+	if n == -1 {
+		log.Println("latest:", name, "not found on disk")
+		return Record{}, ErrNoData
+	}
+
+	log.Println("latest:", name, "found on disk:", n)
+
+	t, pos, err := s.readIdxEntry(n)
+	if err != nil {
+		return Record{}, err
+	}
+	log.Println("latest:", name, t, pos)
+
+	var lastPos int64
+	if n == s.isize/fsDsISize-1 {
+		lastPos = s.dsize - fsDsDSize
+	} else {
+		_, p, err := s.readIdxEntry(n + 1)
+		if err != nil {
+			return Record{}, err
+		}
+		lastPos = p - fsDsDSize
+	}
+
+	if _, err := s.dat.Seek(lastPos, os.SEEK_SET); err != nil {
+		return Record{}, err
+	}
+	var val float64
+	if err := binary.Read(s.dat, binary.LittleEndian, &val); err != nil {
+		return Record{}, err
+	}
+	return Record{Ts: t + 60*((lastPos-pos)/fsDsDSize), Value: val}, nil
 }
 
 func (ds *FsDatastore) getStream(name string) *fsDsStream {
@@ -180,6 +214,20 @@ func (ds *FsDatastore) getStream(name string) *fsDsStream {
 	st.Lock()
 	ds.mu[p].Unlock()
 	return st
+}
+
+func (ds *FsDatastore) makeSnapshot(name string) (*fsDsSnapshot, error) {
+	st := ds.getStream(name)
+	if st == nil {
+		return nil, Error("Datastore not running")
+	}
+	s, err := st.makeSnapshot()
+	if err != nil {
+		st.Unlock()
+		return nil, err
+	}
+	st.Unlock()
+	return s, nil
 }
 
 func (ds *FsDatastore) createStream(name string, p uint, tail []fsDsRecord) {
@@ -259,7 +307,6 @@ func (ds *FsDatastore) saveTails() error {
 	for _, streams := range ds.streams {
 		ntails += len(streams)
 	}
-
 	if err = binary.Write(wr, le, uint64(ntails)); err != nil {
 		return err
 	}
@@ -298,7 +345,6 @@ func (ds *FsDatastore) saveTails() error {
 	if err = wr.Flush(); err != nil {
 		return err
 	}
-
 	if err = f.Sync(); err != nil {
 		return err
 	}
@@ -373,13 +419,14 @@ func (st *fsDsStream) writeTail() error {
 			continue
 		}
 
-		binary.Write(dbuff, binary.LittleEndian, r.value)
-		dsize += 8
+		le := binary.LittleEndian
+		binary.Write(dbuff, le, r.value)
+		dsize += fsDsDSize
 		lastWr += 60
 
 		if r.ts > lastWr {
-			binary.Write(ibuff, binary.LittleEndian, []int64{r.ts, dsize - 8})
-			isize += 16
+			binary.Write(ibuff, le, []int64{r.ts, dsize - fsDsDSize})
+			isize += fsDsISize
 			lastWr = r.ts
 		}
 	}
@@ -426,7 +473,7 @@ func (st *fsDsStream) openFiles() error {
 			return err
 		}
 		st.dsize, st.isize = di.Size(), ii.Size()
-		if st.isize%16 != 0 || st.dsize%8 != 0 {
+		if st.isize%fsDsISize != 0 || st.dsize%fsDsDSize != 0 {
 			st.closeFiles()
 			return Error("Invalid file size: " + st.name)
 		}
@@ -434,17 +481,17 @@ func (st *fsDsStream) openFiles() error {
 		if st.isize == 0 {
 			st.lastWr = -1<<63 - (-1<<63)%60
 		} else {
-			if _, err := st.idx.Seek(st.isize-16, os.SEEK_SET); err != nil {
+			if _, err := st.idx.Seek(st.isize-fsDsISize, os.SEEK_SET); err != nil {
 				st.closeFiles()
 				return err
 			}
-			data := []int64{0, 0}
-			if err := binary.Read(st.idx, binary.LittleEndian, data); err != nil {
+			d := []int64{0, 0}
+			if err := binary.Read(st.idx, binary.LittleEndian, d); err != nil {
 				st.closeFiles()
 				return err
 			}
-			ts, pos := data[0], data[1]
-			st.lastWr = ts + 60*((st.dsize-pos)/8-1)
+			ts, pos := d[0], d[1]
+			st.lastWr = ts + 60*((st.dsize-pos)/fsDsDSize-1)
 		}
 		st.valid = true
 	}
@@ -489,6 +536,83 @@ func (s *fsDsSnapshot) close() {
 	s.dat.Close()
 	s.idx.Close()
 	s.dat, s.idx = nil, nil
+}
+
+func (s *fsDsSnapshot) findIdx(ts int64) (int64, error) {
+	if s.isize == 0 {
+		log.Println("findIdx: isize == 0")
+		return -1, nil
+	}
+
+	first, _, err := s.readIdxEntry(0)
+	if err != nil {
+		return 0, err
+	}
+	if first > ts {
+		return -1, nil
+	}
+
+	i, j := int64(0), s.isize/fsDsISize-1
+	for i < j {
+		log.Println("findIdx:", i, j)
+		k := (i + j) / 2
+		t, _, err := s.readIdxEntry(k)
+		if err != nil {
+			return 0, err
+		}
+		switch {
+		case t == ts:
+			i, j = k, k
+		case t > ts:
+			j = k - 1
+		case t < ts:
+			if i != k {
+				i = k
+			} else {
+				// j == i+1
+				x, _, err := s.readIdxEntry(j)
+				if err != nil {
+					return 0, err
+				}
+				if x > ts {
+					j = i
+				} else {
+					i = j
+				}
+			}
+		}
+	}
+	return i, nil
+}
+
+func (s *fsDsSnapshot) findTail(ts int64) int64 {
+	last, k := s.lastWr, -1
+	for i, r := range s.tail {
+		if r.ts%60 != 0 || last >= r.ts {
+			continue
+		}
+		if r.ts <= ts {
+			k = i
+		} else {
+			break
+		}
+		last = r.ts
+	}
+	return int64(k)
+}
+
+func (s *fsDsSnapshot) readIdxEntry(n int64) (ts int64, pos int64, err error) {
+	if _, err := s.idx.Seek(n*fsDsISize, os.SEEK_SET); err != nil {
+		return 0, 0, err
+	}
+	d := [2]int64{}
+	if err := binary.Read(s.idx, binary.LittleEndian, d[:]); err != nil {
+		return 0, 0, err
+	}
+	if d[0]%60 != 0 || d[1]%fsDsDSize != 0 {
+		return 0, 0, Error("Invalid index data")
+	}
+	return d[0], d[1], nil
 }
 
 func (ds *FsDatastore) partition(name string) uint {
