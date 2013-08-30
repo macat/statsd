@@ -260,7 +260,6 @@ func (srv *server) flushOrDelete(me *metricEntry) {
 	me.updateIdle()
 
 	if me.recvdInput || len(me.watchers) != 0 {
-		me.recvdInput = false
 		go srv.flushMetric(me)
 	} else if me.idleTicks > LiveLogSize {
 		srv.nEntries--
@@ -282,8 +281,7 @@ func (me *metricEntry) updateIdle() {
 }
 
 func (me *metricEntry) updateLiveLog(ts int64) {
-	var data []float64
-	data = me.tick()
+	data := me.tick()
 	for ch, live := range me.liveLog {
 		live[me.livePtr] = data[ch]
 	}
@@ -306,14 +304,18 @@ func (srv *server) flushMetric(me *metricEntry) {
 	me.Lock()
 
 	me.updateLiveLog(srv.lastTick)
-
 	data := me.flush()
-	for i, n := range metricTypes[me.typ].channels {
-		dbName := srv.prefix+me.name+":"+n
-		err := srv.ds.Insert(dbName, Record{Ts: srv.lastTick, Value: data[i]})
-		if err != nil {
-			log.Println("Server.flushMetric:", err)
+
+	if me.recvdInput {
+		for i, n := range metricTypes[me.typ].channels {
+			dbName := srv.prefix+me.name+":"+n
+			rec := Record{Ts: srv.lastTick, Value: data[i]}
+			err := srv.ds.Insert(dbName, rec)
+			if err != nil {
+				log.Println("Server.flushMetric:", err)
+			}
 		}
+		me.recvdInput = false
 	}
 
 	for _, w := range me.watchers {
