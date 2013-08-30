@@ -7,6 +7,7 @@ import (
 )
 
 // TODO: clean shutdown (save and restore the live log)
+// TODO: reduce contention on the global server lock
 
 type Server interface {
 	Start() error
@@ -195,11 +196,17 @@ func (srv *server) tick() {
 	for {
 		select {
 		case t := <-tickCh:
-			if ts := t.Unix(); ts%60 != 0 {
-				srv.tickMetrics(ts)
-			} else {
-				srv.flushMetrics(ts)
+			ts := t.Unix()
+			srv.Lock()
+			for srv.lastTick < ts {
+				srv.lastTick++
+				if srv.lastTick%60 != 0 {
+					srv.tickMetrics()
+				} else {
+					srv.flushMetrics()
+				}
 			}
+			srv.Unlock()
 		}
 	}
 }
@@ -211,59 +218,50 @@ func (srv *server) getLastTick() int64 {
 	return lt
 }
 
-func (srv *server) tickMetrics(ts int64) {
-	srv.Lock()
-
+func (srv *server) tickMetrics() {
 	srv.notify = make(chan int, srv.nEntries)
-	srv.lastTick = ts
 
 	for _, metrics := range srv.metrics {
 		for _, me := range metrics {
-			go srv.tickMetric(ts, me)
+			go srv.tickMetric(me)
 		}
 	}
 
 	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
-	srv.Unlock()
 }
 
-func (srv *server) flushMetrics(ts int64) {
-	srv.Lock()
-
+func (srv *server) flushMetrics() {
 	srv.notify = make(chan int, srv.nEntries)
-	srv.lastTick = ts
 
 	for _, metrics := range srv.metrics {
 		for _, me := range metrics {
-			srv.flushOrDelete(ts, me)
+			srv.flushOrDelete(me)
 		}
 	}
 
 	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
-
-	srv.Unlock()
 }
 
-func (srv *server) tickMetric(ts int64, me *metricEntry) {
+func (srv *server) tickMetric(me *metricEntry) {
 	me.Lock()
 	me.updateIdle()
-	me.updateLiveLog(ts)
+	me.updateLiveLog(srv.lastTick)
 	srv.notify <- 1
 	me.Unlock()
 }
 
-func (srv *server) flushOrDelete(ts int64, me *metricEntry) {
+func (srv *server) flushOrDelete(me *metricEntry) {
 	me.Lock()
 
 	me.updateIdle()
 
 	if me.recvdInput || len(me.watchers) != 0 {
 		me.recvdInput = false
-		go srv.flushMetric(ts, me)
+		go srv.flushMetric(me)
 	} else if me.idleTicks > LiveLogSize {
 		srv.nEntries--
 		delete(srv.metrics[me.typ], me.name)
@@ -304,14 +302,15 @@ func (me *metricEntry) updateLiveLog(ts int64) {
 	}
 }
 
-func (srv *server) flushMetric(ts int64, me *metricEntry) {
+func (srv *server) flushMetric(me *metricEntry) {
 	me.Lock()
 
-	me.updateLiveLog(ts)
+	me.updateLiveLog(srv.lastTick)
 
 	data := me.flush()
 	for i, n := range metricTypes[me.typ].channels {
-		err := srv.ds.Insert(srv.prefix+me.name+":"+n, Record{ts, data[i]})
+		dbName := srv.prefix+me.name+":"+n
+		err := srv.ds.Insert(dbName, Record{Ts: srv.lastTick, Value: data[i]})
 		if err != nil {
 			log.Println("Server.flushMetric:", err)
 		}
