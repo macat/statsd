@@ -33,19 +33,7 @@ func (err Error) Error() string {
 }
 
 const (
-	ErrNoName          = Error("Name missing")
-	ErrNoType          = Error("Type missing")
-	ErrNoValue         = Error("Value missing")
-	ErrNoSampling      = Error("Sample rate missing")
-	ErrNameInvalid     = Error("Invalid characters in name")
-	ErrTypeInvalid     = Error("Invalid type")
-	ErrValueInvalid    = Error("Invalid value")
-	ErrSamplingInvalid = Error("Invalid sample rate")
-	ErrChannelInvalid  = Error("No such channel")
-	ErrMixingTypes     = Error("Cannot mix different metric types")
-	ErrInvalid         = Error("Invalid paramter")
-	ErrNoChannels      = Error("No channels specified")
-	ErrNonunique       = Error("Channel names must be unique")
+	ErrInvalid = Error("Invalid paramter")
 )
 
 const LiveLogSize = 600
@@ -308,7 +296,7 @@ func (srv *server) flushMetric(me *metricEntry) {
 
 	if me.recvdInput {
 		for i, n := range metricTypes[me.typ].channels {
-			dbName := srv.prefix+me.name+":"+n
+			dbName := srv.prefix + me.name + ":" + n
 			rec := Record{Ts: srv.lastTick, Value: data[i]}
 			err := srv.ds.Insert(dbName, rec)
 			if err != nil {

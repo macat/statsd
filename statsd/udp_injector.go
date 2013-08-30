@@ -47,7 +47,7 @@ func (ui *UDPInjector) Stop() error {
 	defer ui.mu.Unlock()
 
 	if !ui.running {
-		return Error("Injector already stopped")
+		return Error("Injector not running")
 	}
 
 	ui.ch1 <- 1

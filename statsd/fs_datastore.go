@@ -279,7 +279,7 @@ func (ds *FsDatastore) write(notify chan int, p int) {
 			ds.mu[p].Unlock()
 			if err := st.writeTail(); err != nil {
 				st.valid = false
-				log.Println("write:", err)
+				log.Println("FsDatastore.write:", err)
 			}
 			if cap(st.tail) > 3*len(st.tail) {
 				log.Println("tail shrink:", cap(st.tail), len(st.tail))

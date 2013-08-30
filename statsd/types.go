@@ -16,6 +16,13 @@ var (
 	outputChannels map[string]MetricType = make(map[string]MetricType)
 )
 
+const (
+	ErrChannelInvalid = Error("No such channel")
+	ErrMixingTypes    = Error("Cannot mix different metric types")
+	ErrNoChannels     = Error("No channels specified")
+	ErrNotUnique      = Error("Channel names must be unique")
+)
+
 type metric interface {
 	init([]float64)
 	inject(*Metric)
@@ -65,7 +72,7 @@ func metricTypeByChannels(chs []string) (MetricType, error) {
 			return -1, ErrMixingTypes
 		}
 		if names[ch] {
-			return -1, ErrNonunique
+			return -1, ErrNotUnique
 		}
 		names[ch] = true
 	}

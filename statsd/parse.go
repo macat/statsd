@@ -2,6 +2,17 @@ package main
 
 import "strconv"
 
+const (
+	ErrNoName          = Error("Name missing")
+	ErrNoType          = Error("Type missing")
+	ErrNoValue         = Error("Value missing")
+	ErrNoSampling      = Error("Sample rate missing")
+	ErrNameInvalid     = Error("Invalid characters in name")
+	ErrTypeInvalid     = Error("Invalid type")
+	ErrValueInvalid    = Error("Invalid value")
+	ErrSamplingInvalid = Error("Invalid sample rate")
+)
+
 func ParseMetric(m []byte) (*Metric, error) {
 	var n int
 
