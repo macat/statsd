@@ -53,8 +53,7 @@ func (ds *sqlDatastore) Open() error {
 }
 
 func (ds *sqlDatastore) Close() error {
-	// TODO
-	return nil
+	panic("sqlDatastore cannot be stopped")
 }
 
 func (ds *sqlDatastore) Insert(name string, r Record) error {
