@@ -135,7 +135,7 @@ func (ds *FsDatastore) Insert(name string, r Record) error {
 }
 
 func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
-	s, err := ds.makeSnapshot(name)
+	s, err := ds.takeSnapshot(name)
 	if err != nil {
 		return []Record{}, err
 	}
@@ -148,7 +148,7 @@ func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
 }
 
 func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
-	s, err := ds.makeSnapshot(name)
+	s, err := ds.takeSnapshot(name)
 	if err != nil {
 		return Record{}, err
 	}
@@ -216,12 +216,12 @@ func (ds *FsDatastore) getStream(name string) *fsDsStream {
 	return st
 }
 
-func (ds *FsDatastore) makeSnapshot(name string) (*fsDsSnapshot, error) {
+func (ds *FsDatastore) takeSnapshot(name string) (*fsDsSnapshot, error) {
 	st := ds.getStream(name)
 	if st == nil {
 		return nil, Error("Datastore not running")
 	}
-	s, err := st.makeSnapshot()
+	s, err := st.takeSnapshot()
 	if err != nil {
 		st.Unlock()
 		return nil, err
@@ -516,7 +516,7 @@ func (st *fsDsStream) closeFiles() {
 	}
 }
 
-func (st *fsDsStream) makeSnapshot() (*fsDsSnapshot, error) {
+func (st *fsDsStream) takeSnapshot() (*fsDsSnapshot, error) {
 	if err := st.openFiles(); err != nil {
 		return nil, err
 	}
