@@ -115,7 +115,7 @@ func (srv *server) Inject(metric *Metric) error {
 	}
 
 	for _, ch := range metric.Name {
-		if ch == ':' || ch == '/' || ch == 0 {
+		if ch == ':' || ch == '/' || ch == '\\' || ch == 0 {
 			return ErrNameInvalid
 		}
 	}
