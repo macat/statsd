@@ -42,6 +42,14 @@ type fsDsRecord struct {
 	value float64
 }
 
+type fsDsSnapshot struct {
+	tail     []fsDsRecord
+	dat, idx *os.File
+	lastWr   int64
+	dsize    int64
+	isize    int64
+}
+
 func NewFsDatastore(dir string) *FsDatastore {
 	return &FsDatastore{Dir: dir}
 }
@@ -127,8 +135,15 @@ func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
 	if st == nil {
 		return nil, Error("Datastore not running")
 	}
-	// TODO
+	s, err := st.makeSnapshot()
+	if err != nil {
+		st.Unlock()
+		return nil, err
+	}
 	st.Unlock()
+
+	// TODO
+
 	return []Record{}, nil
 }
 
@@ -137,8 +152,15 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 	if st == nil {
 		return Record{}, Error("Datastore not running")
 	}
-	// TODO
+	s, err := st.makeSnapshot()
+	if err != nil {
+		st.Unlock()
+		return nil, err
+	}
 	st.Unlock()
+
+	// TODO
+
 	return Record{}, ErrNoData
 }
 
@@ -443,6 +465,28 @@ func (st *fsDsStream) closeFiles() {
 		st.idx.Close()
 		st.idx = nil
 	}
+}
+
+func (st *fsDsStream) makeSnapshot() (*fsDsSnapshot, error) {
+	if err := st.openFiles(); err != nil {
+		return nil, err
+	}
+	s := &fsDsSnapshot{
+		tail:   append([]fsDsRecord(nil), st.tail...),
+		dat:    st.dat,
+		idx:    st.idx,
+		lastWr: st.lastWr,
+		dsize:  st.dsize,
+		isize:  st.isize,
+	}
+	st.dat, st.dat = nil, nil
+	return s, nil
+}
+
+func (s *fsDsSnapshot) close() {
+	s.dat.Close()
+	s.idx.Close()
+	s.dat, s.idx = nil, nil
 }
 
 func (st *fsDsStream) getIdxEntry(n int64) (ts int64, pos int64, err error) {
