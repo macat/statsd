@@ -143,6 +143,7 @@ func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
 	st.Unlock()
 
 	// TODO
+	_ = s
 
 	return []Record{}, nil
 }
@@ -155,11 +156,12 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 	s, err := st.makeSnapshot()
 	if err != nil {
 		st.Unlock()
-		return nil, err
+		return Record{}, err
 	}
 	st.Unlock()
 
 	// TODO
+	_ = s
 
 	return Record{}, ErrNoData
 }
@@ -405,7 +407,6 @@ func (st *fsDsStream) openFiles() error {
 	if err != nil {
 		return err
 	}
-
 	idx, err := os.OpenFile(st.dir+st.name+".idx", os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		dat.Close()
@@ -416,37 +417,38 @@ func (st *fsDsStream) openFiles() error {
 	if !st.valid {
 		di, err := dat.Stat()
 		if err != nil {
-			dat.Close()
-			idx.Close()
+			st.closeFiles()
 			return err
 		}
-
 		ii, err := idx.Stat()
 		if err != nil {
-			dat.Close()
-			idx.Close()
+			st.closeFiles()
 			return err
 		}
 		st.dsize, st.isize = di.Size(), ii.Size()
+		if st.isize%16 != 0 || st.dsize%8 != 0 {
+			st.closeFiles()
+			return Error("Invalid file size: " + st.name)
+		}
 
 		if st.isize == 0 {
-			st.lastWr = -1 << 63
+			st.lastWr = -1<<63 - (-1<<63)%60
 		} else {
-			ts, pos, err := st.getIdxEntry((st.isize / 16) - 1)
-			if err != nil {
-				dat.Close()
-				idx.Close()
+			if _, err := st.idx.Seek(st.isize-16, os.SEEK_SET); err != nil {
+				st.closeFiles()
 				return err
 			}
+			data := []int64{0, 0}
+			if err := binary.Read(st.idx, binary.LittleEndian, data); err != nil {
+				st.closeFiles()
+				return err
+			}
+			ts, pos := data[0], data[1]
 			st.lastWr = ts + 60*((st.dsize-pos)/8-1)
-		}
-		if st.isize%16 != 0 || st.dsize%8 != 0 {
-			dat.Close()
-			idx.Close()
-			return Error("Invalid file size: " + st.name)
 		}
 		st.valid = true
 	}
+
 	return nil
 }
 
@@ -487,17 +489,6 @@ func (s *fsDsSnapshot) close() {
 	s.dat.Close()
 	s.idx.Close()
 	s.dat, s.idx = nil, nil
-}
-
-func (st *fsDsStream) getIdxEntry(n int64) (ts int64, pos int64, err error) {
-	if _, err := st.idx.Seek(16*n, os.SEEK_SET); err != nil {
-		return 0, 0, err
-	}
-	data := []int64{0, 0}
-	if err := binary.Read(st.idx, binary.LittleEndian, data); err != nil {
-		return 0, 0, err
-	}
-	return data[0], data[1], nil
 }
 
 func (ds *FsDatastore) partition(name string) uint {
