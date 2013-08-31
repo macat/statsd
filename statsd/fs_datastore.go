@@ -7,10 +7,7 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 )
-
-// TODO: remove debug info
 
 const (
 	fsDsPartitions = 4
@@ -124,7 +121,6 @@ func (ds *FsDatastore) Close() error {
 }
 
 func (ds *FsDatastore) Insert(name string, r Record) error {
-	log.Println("inserting:", name)
 	st := ds.getStream(name)
 	if st == nil {
 		return Error("Datastore not running")
@@ -232,9 +228,7 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 		ts -= ts%60 + 60
 	}
 
-	log.Println("latest:", name, ts)
 	if n := s.findTail(ts); n != -1 {
-		log.Println("latest:", name, "found in tail")
 		return Record{Ts: s.tail[n].ts, Value: s.tail[n].value}, nil
 	}
 
@@ -243,17 +237,13 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 		return Record{}, err
 	}
 	if n == -1 {
-		log.Println("latest:", name, "not found on disk")
 		return Record{}, ErrNoData
 	}
-
-	log.Println("latest:", name, "found on disk:", n)
 
 	t, pos, err := s.readIdxEntry(n)
 	if err != nil {
 		return Record{}, err
 	}
-	log.Println("latest:", name, t, pos)
 
 	var lastPos int64
 	if n == s.isize/fsDsISize-1 {
@@ -317,7 +307,6 @@ func (ds *FsDatastore) createStream(name string, p uint, tail []fsDsRecord) {
 	if len(ds.queue[p]) == 1 {
 		ds.cond[p].Signal()
 	}
-	log.Println("loaded: ", name)
 }
 
 func (ds *FsDatastore) write(notify chan int, p int) {
@@ -343,14 +332,12 @@ func (ds *FsDatastore) write(notify chan int, p int) {
 			ds.queue[p] = ds.queue[p][0 : l-1]
 			delete(ds.streams[p], st.name)
 			if cap(ds.queue[p]) > 3*(l-1) {
-				log.Println("queue shrink:", cap(ds.queue[p]), l-1)
 				x := make([]*fsDsStream, l-1, 2*(l-1))
 				copy(x, ds.queue[p])
 				ds.queue[p] = x
 			}
 			st.Unlock()
 			ds.mu[p].Unlock()
-			log.Println("delete:", st.name)
 		} else {
 			ds.mu[p].Unlock()
 			if err := st.writeTail(); err != nil {
@@ -358,7 +345,6 @@ func (ds *FsDatastore) write(notify chan int, p int) {
 				log.Println("FsDatastore.write:", err)
 			}
 			if cap(st.tail) > 3*len(st.tail) {
-				log.Println("tail shrink:", cap(st.tail), len(st.tail))
 				st.tail = make([]fsDsRecord, 0, 2*len(st.tail))
 			} else {
 				st.tail = st.tail[:0]
@@ -369,9 +355,6 @@ func (ds *FsDatastore) write(notify chan int, p int) {
 }
 
 func (ds *FsDatastore) saveTails() error {
-	log.Println("saveTailes()...")
-	start := time.Now()
-
 	f, err := os.Create(ds.dir + "tail_data")
 	if err != nil {
 		return err
@@ -410,7 +393,6 @@ func (ds *FsDatastore) saveTails() error {
 				break
 			}
 			st.Unlock()
-			log.Println("tail saved:", i)
 		}
 	}
 	if err != nil {
@@ -424,20 +406,12 @@ func (ds *FsDatastore) saveTails() error {
 	if err = f.Sync(); err != nil {
 		return err
 	}
-
-	finish := time.Now()
-	log.Println("done.", finish.Sub(start).Seconds(), i)
-
 	return nil
 }
 
 func (ds *FsDatastore) loadTails() error {
-	log.Println("loadTails()...")
-	start := time.Now()
-
 	f, err := os.Open(ds.dir + "tail_data")
 	if os.IsNotExist(err) {
-		log.Println("done.")
 		return nil
 	} else if err != nil {
 		return err
@@ -469,15 +443,10 @@ func (ds *FsDatastore) loadTails() error {
 		strName := string(name)
 		ds.createStream(strName, ds.partition(strName), tail)
 	}
-
-	finish := time.Now()
-	log.Println("done.", finish.Sub(start).Seconds())
-
 	return nil
 }
 
 func (st *fsDsStream) writeTail() error {
-	log.Println(st.dir+st.name, len(st.tail))
 	if err := st.openFiles(); err != nil {
 		return err
 	}
@@ -616,7 +585,6 @@ func (s *fsDsSnapshot) close() {
 
 func (s *fsDsSnapshot) findIdx(ts int64) (int64, error) {
 	if s.isize == 0 {
-		log.Println("findIdx: isize == 0")
 		return -1, nil
 	}
 
@@ -630,7 +598,6 @@ func (s *fsDsSnapshot) findIdx(ts int64) (int64, error) {
 
 	i, j := int64(0), s.isize/fsDsISize-1
 	for i < j {
-		log.Println("findIdx:", i, j)
 		k := (i + j) / 2
 		t, _, err := s.readIdxEntry(k)
 		if err != nil {
