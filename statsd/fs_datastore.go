@@ -141,10 +141,82 @@ func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
 	}
 	defer s.close()
 
-	// TODO
-	_ = s
+	nEntries := s.isize / fsDsISize
+	if nEntries == 0 {
+		return []Record{}, nil
+	}
 
-	return []Record{}, nil
+	if from < 0 {
+		from -= from % 60
+	} else if from%60 != 0 {
+		from -= from%60 - 60
+	}
+	if until > 0 {
+		until -= until % 60
+	} else if until%60 != 0 {
+		until -= until%60 + 60
+	}
+
+	n, err := s.findIdx(from)
+	if err != nil {
+		return nil, err
+	}
+	if n == -1 {
+		n = 0
+	}
+
+	result := make([]Record, 0)
+	var ts, pos, nts, npos int64
+
+	if ts, pos, err = s.readIdxEntry(n); err != nil {
+		return nil, err
+	}
+
+	for ; n < nEntries && ts <= until; n, ts, pos = n+1, nts, npos {
+		if n != nEntries-1 {
+			if nts, npos, err = s.readIdxEntry(n + 1); err != nil {
+				return nil, err
+			}
+		} else {
+			npos = s.dsize
+		}
+
+		f, u := (from-ts)/60, (until-ts)/60
+		if f < 0 {
+			f = 0
+		}
+		if maxu := (npos-pos)/fsDsDSize - 1; u > maxu {
+			u = maxu
+		}
+		if f > u {
+			continue
+		}
+
+		if _, err = s.dat.Seek(pos+f*fsDsDSize, os.SEEK_SET); err != nil {
+			return nil, err
+		}
+		data := make([]float64, u-f+1)
+		if err := binary.Read(s.dat, binary.LittleEndian, data); err != nil {
+			return nil, err
+		}
+		for i, val := range data {
+			rec := Record{Ts: ts + (f+int64(i))*60, Value: val}
+			result = append(result, rec)
+		}
+	}
+
+	last := s.lastWr
+	for _, r := range s.tail {
+		if r.ts%60 != 0 || last >= r.ts {
+			continue
+		}
+		if r.ts >= from || r.ts <= until {
+			result = append(result, Record{Ts: r.ts, Value: r.value})
+		}
+		last = r.ts
+	}
+
+	return result, nil
 }
 
 func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
@@ -154,7 +226,11 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 	}
 	defer s.close()
 
-	ts -= ts % 60
+	if ts > 0 {
+		ts -= ts % 60
+	} else if ts%60 != 0 {
+		ts -= ts%60 + 60
+	}
 
 	log.Println("latest:", name, ts)
 	if n := s.findTail(ts); n != -1 {
