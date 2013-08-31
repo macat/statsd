@@ -398,7 +398,7 @@ func (srv *server) initAggregator(aggr aggregator, name string, typ MetricType, 
 	input, tmp := make([][]Record, len(inChs)), make([]float64, len(inChs))
 	for i, j := range inChs {
 		ch := metricTypes[typ].channels[j]
-		in, err := srv.ds.Query(srv.prefix+name+":"+ch, from, until)
+		in, err := srv.ds.Query(srv.prefix+name+":"+ch, from+60, until)
 		if err != nil {
 			return nil, err
 		}
