@@ -7,7 +7,6 @@ import (
 )
 
 // TODO: clean shutdown (save and restore the live log)
-// TODO: reduce contention on the global server lock
 
 type Server interface {
 	Start() error
@@ -37,13 +36,15 @@ const (
 )
 
 const LiveLogSize = 600
+const srvPartitions = 8
 
 type server struct {
-	sync.Mutex
+	gmu      sync.Mutex
+	mu       [srvPartitions]sync.Mutex
 	ds       Datastore
 	prefix   string
-	metrics  [NMetricTypes]map[string]*metricEntry
-	nEntries int
+	metrics  [srvPartitions][NMetricTypes]map[string]*metricEntry
+	nEntries [srvPartitions]int
 	lastTick int64
 	notify   chan int
 }
@@ -76,8 +77,10 @@ type Watcher struct {
 
 func NewServer(ds Datastore, prefix string) Server {
 	srv := &server{ds: ds, prefix: prefix}
-	for i := range srv.metrics {
-		srv.metrics[i] = make(map[string]*metricEntry)
+	for p := range srv.metrics {
+		for i := range srv.metrics[p] {
+			srv.metrics[p][i] = make(map[string]*metricEntry)
+		}
 	}
 	return srv
 }
@@ -129,9 +132,10 @@ func (srv *server) Inject(metric *Metric) error {
 }
 
 func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
-	srv.Lock()
+	p := hash(name) % srvPartitions
+	srv.mu[p].Lock()
 
-	me := srv.metrics[typ][name]
+	me := srv.metrics[p][typ][name]
 	if me == nil {
 		chs := metricTypes[typ].channels
 
@@ -156,12 +160,12 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 
 		me.init(initData)
 
-		srv.metrics[typ][name] = me
-		srv.nEntries++
+		srv.metrics[p][typ][name] = me
+		srv.nEntries[p]++
 	}
 
 	me.Lock()
-	srv.Unlock()
+	srv.mu[p].Unlock()
 	return me
 }
 
@@ -185,7 +189,10 @@ func (srv *server) tick() {
 		select {
 		case t := <-tickCh:
 			ts := t.Unix()
-			srv.Lock()
+			srv.gmu.Lock()
+			for i := range srv.mu {
+				srv.mu[i].Lock()
+			}
 			for srv.lastTick < ts {
 				srv.lastTick++
 				if srv.lastTick%60 != 0 {
@@ -194,44 +201,68 @@ func (srv *server) tick() {
 					srv.flushMetrics()
 				}
 			}
-			srv.Unlock()
+			for i := range srv.mu {
+				srv.mu[i].Unlock()
+			}
+			srv.gmu.Unlock()
 		}
 	}
 }
 
 func (srv *server) getLastTick() int64 {
-	srv.Lock()
+	srv.gmu.Lock()
+	for p := range srv.mu {
+		srv.mu[p].Lock()
+	}
 	lt := srv.lastTick
-	srv.Unlock()
+	for p := range srv.mu {
+		srv.mu[p].Unlock()
+	}
+	srv.gmu.Unlock()
 	return lt
 }
 
 func (srv *server) tickMetrics() {
-	srv.notify = make(chan int, srv.nEntries)
+	total := srv.totalEntries()
+	srv.notify = make(chan int, total)
 
-	for _, metrics := range srv.metrics {
-		for _, me := range metrics {
-			go srv.tickMetric(me)
+	for p := range srv.metrics {
+		for _, metrics := range srv.metrics[p] {
+			for _, me := range metrics {
+				go srv.tickMetric(me)
+			}
 		}
 	}
 
-	for i := 0; i < srv.nEntries; i++ {
+	for i := 0; i < total; i++ {
 		<-srv.notify
 	}
 }
 
 func (srv *server) flushMetrics() {
-	srv.notify = make(chan int, srv.nEntries)
+	total := srv.totalEntries()
+	srv.notify = make(chan int, total)
 
-	for _, metrics := range srv.metrics {
-		for _, me := range metrics {
-			srv.flushOrDelete(me)
+	for p := range srv.metrics {
+		for _, metrics := range srv.metrics[p] {
+			for _, me := range metrics {
+				srv.flushOrDelete(p, me)
+			}
 		}
 	}
 
-	for i := 0; i < srv.nEntries; i++ {
+	total = srv.totalEntries()
+	for i := 0; i < total; i++ {
 		<-srv.notify
 	}
+}
+
+func (srv *server) totalEntries() int {
+	totalEntries := 0
+	for i := range srv.nEntries {
+		totalEntries += srv.nEntries[i]
+	}
+	return totalEntries
 }
 
 func (srv *server) tickMetric(me *metricEntry) {
@@ -242,7 +273,7 @@ func (srv *server) tickMetric(me *metricEntry) {
 	me.Unlock()
 }
 
-func (srv *server) flushOrDelete(me *metricEntry) {
+func (srv *server) flushOrDelete(p int, me *metricEntry) {
 	me.Lock()
 
 	me.updateIdle()
@@ -250,8 +281,8 @@ func (srv *server) flushOrDelete(me *metricEntry) {
 	if me.recvdInput || len(me.watchers) != 0 {
 		go srv.flushMetric(me)
 	} else if me.idleTicks > LiveLogSize {
-		srv.nEntries--
-		delete(srv.metrics[me.typ], me.name)
+		srv.nEntries[p]--
+		delete(srv.metrics[p][me.typ], me.name)
 	} else {
 		srv.notify <- 1
 	}

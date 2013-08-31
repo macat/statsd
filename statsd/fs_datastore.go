@@ -267,7 +267,7 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 }
 
 func (ds *FsDatastore) getStream(name string) *fsDsStream {
-	p := ds.partition(name)
+	p := hash(name) % fsDsPartitions
 	ds.mu[p].Lock()
 	if !ds.running {
 		ds.mu[p].Unlock()
@@ -296,7 +296,7 @@ func (ds *FsDatastore) takeSnapshot(name string) (*fsDsSnapshot, error) {
 	return s, nil
 }
 
-func (ds *FsDatastore) createStream(name string, p uint, tail []fsDsRecord) {
+func (ds *FsDatastore) createStream(name string, p uint32, tail []fsDsRecord) {
 	st := &fsDsStream{
 		name: name,
 		dir:  ds.dir,
@@ -441,7 +441,7 @@ func (ds *FsDatastore) loadTails() error {
 			return err
 		}
 		strName := string(name)
-		ds.createStream(strName, ds.partition(strName), tail)
+		ds.createStream(strName, hash(strName) % fsDsPartitions, tail)
 	}
 	return nil
 }
@@ -656,15 +656,4 @@ func (s *fsDsSnapshot) readIdxEntry(n int64) (ts int64, pos int64, err error) {
 		return 0, 0, Error("Invalid index data")
 	}
 	return d[0], d[1], nil
-}
-
-func (ds *FsDatastore) partition(name string) uint {
-	var x uint64
-	for _, ch := range name {
-		for i := 15; i >= 0; i-- {
-			x <<= 1
-			x ^= 0x1edc6f41 * ((x >> 32) ^ (uint64(ch)>>uint(i))&1)
-		}
-	}
-	return uint((x & 0xffff) % fsDsPartitions)
 }
