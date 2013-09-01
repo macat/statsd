@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -61,11 +60,9 @@ func TestServe_new_session(t *testing.T) {
 		s.Serve(task)
 
 		headers := task.Rw.Header()
-		expecting := []string{"sid=" + s.sid + "; Path=/; HttpOnly"}
 
-		if !reflect.DeepEqual(headers["Set-Cookie"], expecting) {
-			t.Errorf("It should set new session cookie: %s; it set: %s",
-				expecting, headers["Set-Cookie"])
+		if len(headers["Set-Cookie"]) != 1 {
+			t.Errorf("It should set new session cookie")
 		}
 	})
 }
@@ -76,19 +73,19 @@ func TestServe_login(t *testing.T) {
 		s.Serve(task)
 
 		headers := task.Rw.Header()
-		expecting := []string{"sid=" + s.sid + "; Path=/; HttpOnly"}
 
-		if !reflect.DeepEqual(headers["Set-Cookie"], expecting) {
-			t.Errorf("It should set new session cookie: %s; it set: %s",
-				expecting, headers["Set-Cookie"])
+		if len(headers["Set-Cookie"]) != 1 {
+			t.Errorf("It should set new session cookie")
 		}
 
 		var uid string
-		db.QueryRow(`
+		err := db.QueryRow(`
 			SELECT "uid"
 			FROM "sessions"
-			WHERE "sid" = $1`,
-			s.sid).Scan(&uid)
+			ORDER BY created DESC
+			LIMIT 1`).Scan(&uid)
+
+		t.Log(err)
 
 		if uid != "4b261947-6ae7-4f9c-9a5b-331a25336cc2" {
 			t.Error("It should set session uid")
