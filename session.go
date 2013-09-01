@@ -33,31 +33,30 @@ func (s *Session) Serve(t *Task) {
 }
 
 func (s *Session) ensure(t *Task) {
-	newSession := false
 
 	cookie, err := t.Rq.Cookie(SessionCookieName)
 
 	if err != nil {
-		newSession = true
+		s.startNew(t)
 	} else {
-		s.sid = cookie.Value
-		qerr := t.Tx.QueryRow(`
-			SELECT "uid"
+
+		qerr := db.QueryRow(`
+			SELECT "sid", "uid"
 			FROM "sessions"
 			WHERE "sid" = $1`,
-			s.sid).Scan(&s.uid)
-		if qerr != nil {
-			newSession = true
-		}
-	}
+			cookie.Value).Scan(&s.sid, &s.uid)
 
-	if newSession {
-		s.startNew(t)
+		if qerr != nil {
+			s.startNew(t)
+		}
 	}
 }
 
 func (s *Session) updateUid(t *Task) {
-	t.Tx.Exec(` UPDATE "sessions" SET uid = $1 WHERE sid = $2`, t.Uid)
+	_, err := db.Exec(`UPDATE "sessions" SET uid = $1 WHERE sid = $2`, t.Uid, s.sid)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (s *Session) startNew(t *Task) {
@@ -69,7 +68,7 @@ func (s *Session) startNew(t *Task) {
 	}
 
 	s.sid = base64.URLEncoding.EncodeToString(bin)
-	_, err := t.Tx.Exec(`
+	_, err := db.Exec(`
 		INSERT INTO "sessions" ("sid", "created")
 		VALUES ($1, NOW())`,
 		s.sid)

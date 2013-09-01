@@ -18,8 +18,13 @@ type TestHandler map[string]Handler
 func (t TestHandler) Serve(task *Task) {
 }
 
+type TestUserChangerHandler map[string]Handler
+
+func (t TestUserChangerHandler) Serve(task *Task) {
+	task.Uid = "4b261947-6ae7-4f9c-9a5b-331a25336cc2"
+}
+
 func dbTest(sid string, test func(*Task)) {
-	var db *sql.DB
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -42,14 +47,12 @@ func dbTest(sid string, test func(*Task)) {
 		log.Fatalln(err)
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		panic(err)
-	}
 	rq := http.Request{Header: http.Header{"Cookie": {"sid=" + sid}}}
 	rw := httptest.NewRecorder()
-	test(&Task{Tx: tx, Rq: &rq, Rw: rw})
-	defer tx.Rollback()
+	test(&Task{Rq: &rq, Rw: rw})
+	if _, err := db.Exec(`DELETE FROM sessions`); err != nil {
+		panic(err)
+	}
 }
 
 func TestServe_new_session(t *testing.T) {
@@ -67,11 +70,38 @@ func TestServe_new_session(t *testing.T) {
 	})
 }
 
+func TestServe_login(t *testing.T) {
+	dbTest("super", func(task *Task) {
+		s := NewSession(TestUserChangerHandler(map[string]Handler{}))
+		s.Serve(task)
+
+		headers := task.Rw.Header()
+		expecting := []string{"sid=" + s.sid + "; Path=/; HttpOnly"}
+
+		if !reflect.DeepEqual(headers["Set-Cookie"], expecting) {
+			t.Errorf("It should set new session cookie: %s; it set: %s",
+				expecting, headers["Set-Cookie"])
+		}
+
+		var uid string
+		db.QueryRow(`
+			SELECT "uid"
+			FROM "sessions"
+			WHERE "sid" = $1`,
+			s.sid).Scan(&uid)
+
+		if uid != "4b261947-6ae7-4f9c-9a5b-331a25336cc2" {
+			t.Error("It should set session uid")
+		}
+
+	})
+}
+
 func TestServe_existing_session(t *testing.T) {
 	dbTest("super-sid", func(task *Task) {
 		uid := "88d181e2-de04-46f2-9901-925db3cea38a"
 
-		_, err := task.Tx.Exec(`
+		_, err := db.Exec(`
 			INSERT INTO "sessions" ("sid", "uid", "created")
 			VALUES ('super-sid', $1, NOW())`, uid)
 		if err != nil {
@@ -95,11 +125,11 @@ func TestServe_existing_session(t *testing.T) {
 	})
 }
 
-func TestServe_hacker(t *testing.T) {
+func TestServe_empty(t *testing.T) {
 	dbTest("", func(task *Task) {
 		uid := "88d181e2-de04-46f2-9901-925db3cea38a"
 
-		_, err := task.Tx.Exec(`
+		_, err := db.Exec(`
 			INSERT INTO "sessions" ("sid", "uid", "created")
 			VALUES ('super-sid', $1, NOW())`, uid)
 		if err != nil {
