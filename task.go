@@ -23,6 +23,12 @@ func (t *Task) SendJson(data interface{}) {
 	}
 }
 
+func (t *Task) SendJsonObject(name string, data interface{}) {
+	jsonData := make(map[string]interface{})
+	jsonData[name] = data
+	t.SendJson(jsonData)
+}
+
 func (t *Task) SendError(msg string) {
 	t.Rw.Header().Set("Content-Type", "application/json; charset=utf-8")
 	t.Rw.WriteHeader(http.StatusBadRequest)

@@ -4,6 +4,7 @@ import (
 	"admin/access"
 	"admin/uuids"
 	"database/sql"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -66,7 +67,7 @@ func listDashboards(t *Task) {
 		})
 	}
 
-	t.SendJson(dashboards)
+	t.SendJson(map[string]interface{}{"dashboards": dashboards})
 }
 
 func createDashboard(t *Task) {
@@ -75,11 +76,17 @@ func createDashboard(t *Task) {
 		return
 	}
 
-	data, ok := t.RecvJson().(map[string]interface{})
+	receivedData, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
 		t.Rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
+
+	log.Println(receivedData)
+
+	data := receivedData["dashboard"].(map[string]interface{})
+
+	log.Println(data)
 
 	title, ok := data["title"].(string)
 	if !ok || title == "" {
@@ -141,7 +148,7 @@ func createDashboard(t *Task) {
 	}
 
 	t.Rw.WriteHeader(http.StatusCreated)
-	t.SendJson(map[string]string{"id": id})
+	sendDashboard(t, id)
 }
 
 func getDashboard(t *Task) {
@@ -154,7 +161,10 @@ func getDashboard(t *Task) {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
 	}
+	sendDashboard(t, t.UUID)
+}
 
+func sendDashboard(t *Task, uuid string) {
 	row := t.Tx.QueryRow(`
 		SELECT
 			"id",
@@ -168,7 +178,7 @@ func getDashboard(t *Task) {
 			"dashboards"
 		WHERE
 			"id" = $1`,
-		t.UUID)
+		uuid)
 
 	var id, title, slug, category, creator string
 	var position int
@@ -189,7 +199,7 @@ func getDashboard(t *Task) {
 		"creator":  creator,
 	}
 
-	t.SendJson(dashboard)
+	t.SendJsonObject("dashboard", dashboard)
 }
 
 func changeDashboard(t *Task) {
