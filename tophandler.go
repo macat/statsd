@@ -1,8 +1,7 @@
 package main
 
 var topHandler = NewSession(PrefixRouter(map[string]Handler{
-	"*":            Static("./web-client/tmp"),
-	"/views":       Static("./web-client/tmp/views"),
+	"*":            Static("./web-client/app"),
 	"/users":       usersRouter,
 	"/groups":      groupsRouter,
 	"/login":       &CheckMethod{"POST", &Transactional{HandlerFunc(login)}},

@@ -2,112 +2,97 @@ package main
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"io"
 	"net/http"
-	"sync"
-	"time"
 )
 
 const (
-	SessionCookieName      = "sid"
-	SessionExpiry          = 2 * time.Hour
-	SessionCleanupInterval = 1 * time.Minute
+	SessionCookieName = "sid"
 )
 
 type Session struct {
 	Handler
-	sync.Mutex
-	entries map[string]*sessionEntry
-}
-
-type sessionEntry struct {
-	uid       string
-	idleSince time.Time
 }
 
 func NewSession(h Handler) *Session {
-	return &Session{Handler: h, entries: make(map[string]*sessionEntry)}
+	return &Session{Handler: h}
 }
 
 func (s *Session) Serve(t *Task) {
-	sid, uid := s.ensureSession(t)
-
+	sid, uid := s.ensure(t)
 	t.Uid = uid
+
 	s.Handler.Serve(t)
 
 	if t.Uid != uid {
-		s.Lock()
-		defer s.Unlock()
-		s.entries[sid].uid = t.Uid
+		s.updateUid(t, sid)
 	}
 }
 
-func (s *Session) ensureSession(t *Task) (string, string) {
-	newSession, sid, entry, ok := false, "", (*sessionEntry)(nil), false
+func (s *Session) ensure(t *Task) (sid, uid string) {
 
+	uid = ""
 	cookie, err := t.Rq.Cookie(SessionCookieName)
 
-	s.Lock()
-	defer s.Unlock()
-
 	if err != nil {
-		newSession = true
+		sid = s.startNew(t)
 	} else {
-		sid = cookie.Value
-		entry, ok = s.entries[sid]
-		if !ok || time.Now().Sub(entry.idleSince) >= SessionExpiry {
-			newSession = true
-		}
-	}
 
-	if newSession {
-		bin := make([]byte, 18)
-		if n, err := rand.Read(bin); err != nil {
+		var nullOrUid sql.NullString
+		qerr := db.QueryRow(`
+			SELECT "uid"
+			FROM "sessions"
+			WHERE "sid" = $1`,
+			cookie.Value).Scan(&nullOrUid)
+		switch {
+		case qerr == sql.ErrNoRows:
+			sid = s.startNew(t)
+		case qerr != nil:
 			panic(err)
-		} else if n < len(bin) {
-			panic(io.EOF)
+		default:
+			if nullOrUid.Valid {
+				uid = nullOrUid.String
+			}
+			sid = cookie.Value
 		}
-
-		sid = base64.URLEncoding.EncodeToString(bin)
-		entry = &sessionEntry{"", time.Now()}
-
-		s.entries[sid] = entry
-		if len(s.entries) == 1 {
-			go s.cleanup()
-		}
-
-		http.SetCookie(t.Rw, &http.Cookie{
-			Name:     SessionCookieName,
-			Value:    sid,
-			Path:     appRoot,
-			HttpOnly: true,
-		})
-	} else {
-		entry.idleSince = time.Now()
 	}
-
-	return sid, entry.uid
+	return
 }
 
-func (s *Session) cleanup() {
-	for {
-		time.Sleep(SessionCleanupInterval)
-		deadline := time.Now().Add(-SessionExpiry)
-
-		s.Lock()
-		for k, v := range s.entries {
-			if v.idleSince.Before(deadline) {
-				delete(s.entries, k)
-			}
+func (s *Session) updateUid(t *Task, sid string) {
+	if t.Uid != "" {
+		_, err := db.Exec(`UPDATE "sessions" SET uid = $1 WHERE sid = $2`, t.Uid, sid)
+		if err != nil {
+			panic(err)
 		}
-
-		if len(s.entries) == 0 {
-			break
-		} else {
-			s.Unlock()
-		}
-
 	}
-	s.Unlock()
+}
+
+func (s *Session) startNew(t *Task) (sid string) {
+	bin := make([]byte, 18)
+	if n, err := rand.Read(bin); err != nil {
+		panic(err)
+	} else if n < len(bin) {
+		panic(io.EOF)
+	}
+
+	sid = base64.URLEncoding.EncodeToString(bin)
+	_, err := db.Exec(`
+		INSERT INTO "sessions" ("sid", "created")
+		VALUES ($1, NOW())`,
+		sid)
+
+	if err != nil {
+		panic(err)
+	}
+
+	http.SetCookie(t.Rw, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    sid,
+		Path:     appRoot,
+		HttpOnly: true,
+	})
+	return
 }

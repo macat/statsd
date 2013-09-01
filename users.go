@@ -122,7 +122,7 @@ func listUsers(t *Task) {
 			perm)
 	}
 
-	t.SendJson(users)
+	t.SendJson(map[string]interface{}{"users": users})
 }
 
 func createUser(t *Task) {
@@ -266,7 +266,7 @@ func getUser(t *Task) {
 			perm)
 	}
 
-	t.SendJson(user)
+	t.SendJson(map[string]interface{}{"user": user})
 }
 
 func changeUser(t *Task) {
