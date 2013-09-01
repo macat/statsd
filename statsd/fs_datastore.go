@@ -441,7 +441,7 @@ func (ds *FsDatastore) loadTails() error {
 			return err
 		}
 		strName := string(name)
-		ds.createStream(strName, hash(strName) % fsDsPartitions, tail)
+		ds.createStream(strName, hash(strName)%fsDsPartitions, tail)
 	}
 	return nil
 }
