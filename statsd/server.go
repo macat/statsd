@@ -36,15 +36,13 @@ const (
 )
 
 const LiveLogSize = 600
-const srvPartitions = 8
 
 type server struct {
-	gmu      sync.Mutex
-	mu       [srvPartitions]sync.Mutex
+	mu      sync.Mutex
 	ds       Datastore
 	prefix   string
-	metrics  [srvPartitions][NMetricTypes]map[string]*metricEntry
-	nEntries [srvPartitions]int
+	metrics  [NMetricTypes]map[string]*metricEntry
+	nEntries int
 	lastTick int64
 	notify   chan int
 }
@@ -77,10 +75,8 @@ type Watcher struct {
 
 func NewServer(ds Datastore, prefix string) Server {
 	srv := &server{ds: ds, prefix: prefix}
-	for p := range srv.metrics {
-		for i := range srv.metrics[p] {
-			srv.metrics[p][i] = make(map[string]*metricEntry)
-		}
+	for i := range srv.metrics {
+		srv.metrics[i] = make(map[string]*metricEntry)
 	}
 	return srv
 }
@@ -132,10 +128,9 @@ func (srv *server) Inject(metric *Metric) error {
 }
 
 func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
-	p := hash(name) % srvPartitions
-	srv.mu[p].Lock()
+	srv.mu.Lock()
 
-	me := srv.metrics[p][typ][name]
+	me := srv.metrics[typ][name]
 	if me == nil {
 		chs := metricTypes[typ].channels
 
@@ -160,12 +155,12 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 
 		me.init(initData)
 
-		srv.metrics[p][typ][name] = me
-		srv.nEntries[p]++
+		srv.metrics[typ][name] = me
+		srv.nEntries++
 	}
 
 	me.Lock()
-	srv.mu[p].Unlock()
+	srv.mu.Unlock()
 	return me
 }
 
@@ -189,10 +184,7 @@ func (srv *server) tick() {
 		select {
 		case t := <-tickCh:
 			ts := t.Unix()
-			srv.gmu.Lock()
-			for i := range srv.mu {
-				srv.mu[i].Lock()
-			}
+			srv.mu.Lock()
 			for srv.lastTick < ts {
 				srv.lastTick++
 				if srv.lastTick%60 != 0 {
@@ -201,68 +193,44 @@ func (srv *server) tick() {
 					srv.flushMetrics()
 				}
 			}
-			for i := range srv.mu {
-				srv.mu[i].Unlock()
-			}
-			srv.gmu.Unlock()
+			srv.mu.Unlock()
 		}
 	}
 }
 
 func (srv *server) getLastTick() int64 {
-	srv.gmu.Lock()
-	for p := range srv.mu {
-		srv.mu[p].Lock()
-	}
+	srv.mu.Lock()
 	lt := srv.lastTick
-	for p := range srv.mu {
-		srv.mu[p].Unlock()
-	}
-	srv.gmu.Unlock()
+	srv.mu.Unlock()
 	return lt
 }
 
 func (srv *server) tickMetrics() {
-	total := srv.totalEntries()
-	srv.notify = make(chan int, total)
+	srv.notify = make(chan int, srv.nEntries)
 
-	for p := range srv.metrics {
-		for _, metrics := range srv.metrics[p] {
-			for _, me := range metrics {
-				go srv.tickMetric(me)
-			}
+	for _, metrics := range srv.metrics {
+		for _, me := range metrics {
+			go srv.tickMetric(me)
 		}
 	}
 
-	for i := 0; i < total; i++ {
+	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
 }
 
 func (srv *server) flushMetrics() {
-	total := srv.totalEntries()
-	srv.notify = make(chan int, total)
+	srv.notify = make(chan int, srv.nEntries)
 
-	for p := range srv.metrics {
-		for _, metrics := range srv.metrics[p] {
-			for _, me := range metrics {
-				srv.flushOrDelete(p, me)
-			}
+	for _, metrics := range srv.metrics {
+		for _, me := range metrics {
+			srv.flushOrDelete(me)
 		}
 	}
 
-	total = srv.totalEntries()
-	for i := 0; i < total; i++ {
+	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
-}
-
-func (srv *server) totalEntries() int {
-	totalEntries := 0
-	for i := range srv.nEntries {
-		totalEntries += srv.nEntries[i]
-	}
-	return totalEntries
 }
 
 func (srv *server) tickMetric(me *metricEntry) {
@@ -273,7 +241,7 @@ func (srv *server) tickMetric(me *metricEntry) {
 	me.Unlock()
 }
 
-func (srv *server) flushOrDelete(p int, me *metricEntry) {
+func (srv *server) flushOrDelete(me *metricEntry) {
 	me.Lock()
 
 	me.updateIdle()
@@ -281,8 +249,8 @@ func (srv *server) flushOrDelete(p int, me *metricEntry) {
 	if me.recvdInput || len(me.watchers) != 0 {
 		go srv.flushMetric(me)
 	} else if me.idleTicks > LiveLogSize {
-		srv.nEntries[p]--
-		delete(srv.metrics[p][me.typ], me.name)
+		srv.nEntries--
+		delete(srv.metrics[me.typ], me.name)
 	} else {
 		srv.notify <- 1
 	}
