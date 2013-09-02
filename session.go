@@ -67,6 +67,11 @@ func (s *Session) updateUid(t *Task, sid string) {
 		if err != nil {
 			panic(err)
 		}
+	} else {
+		_, err := db.Exec(`UPDATE "sessions" SET uid = NULL WHERE sid = $1`, sid)
+		if err != nil {
+			panic(err)
+		}
 	}
 }
 
