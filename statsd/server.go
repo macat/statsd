@@ -32,25 +32,13 @@ func (err Error) Error() string {
 }
 
 const (
-	ErrNoName          = Error("Name missing")
-	ErrNoType          = Error("Type missing")
-	ErrNoValue         = Error("Value missing")
-	ErrNoSampling      = Error("Sample rate missing")
-	ErrNameInvalid     = Error("Invalid characters in name")
-	ErrTypeInvalid     = Error("Invalid type")
-	ErrValueInvalid    = Error("Invalid value")
-	ErrSamplingInvalid = Error("Invalid sample rate")
-	ErrChannelInvalid  = Error("No such channel")
-	ErrMixingTypes     = Error("Cannot mix different metric types")
-	ErrInvalid         = Error("Invalid paramter")
-	ErrNoChannels      = Error("No channels specified")
-	ErrNonunique       = Error("Channel names must be unique")
+	ErrInvalid = Error("Invalid paramter")
 )
 
 const LiveLogSize = 600
 
 type server struct {
-	sync.Mutex
+	mu      sync.Mutex
 	ds       Datastore
 	prefix   string
 	metrics  [NMetricTypes]map[string]*metricEntry
@@ -126,7 +114,7 @@ func (srv *server) Inject(metric *Metric) error {
 	}
 
 	for _, ch := range metric.Name {
-		if ch == ':' || ch == '/' || ch == 0 {
+		if ch == ':' || ch == '/' || ch == '\\' || ch == 0 {
 			return ErrNameInvalid
 		}
 	}
@@ -140,7 +128,7 @@ func (srv *server) Inject(metric *Metric) error {
 }
 
 func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
-	srv.Lock()
+	srv.mu.Lock()
 
 	me := srv.metrics[typ][name]
 	if me == nil {
@@ -172,7 +160,7 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 	}
 
 	me.Lock()
-	srv.Unlock()
+	srv.mu.Unlock()
 	return me
 }
 
@@ -195,75 +183,71 @@ func (srv *server) tick() {
 	for {
 		select {
 		case t := <-tickCh:
-			if ts := t.Unix(); ts%60 != 0 {
-				srv.tickMetrics(ts)
-			} else {
-				srv.flushMetrics(ts)
+			ts := t.Unix()
+			srv.mu.Lock()
+			for srv.lastTick < ts {
+				srv.lastTick++
+				if srv.lastTick%60 != 0 {
+					srv.tickMetrics()
+				} else {
+					srv.flushMetrics()
+				}
 			}
+			srv.mu.Unlock()
 		}
 	}
 }
 
 func (srv *server) getLastTick() int64 {
-	srv.Lock()
+	srv.mu.Lock()
 	lt := srv.lastTick
-	srv.Unlock()
+	srv.mu.Unlock()
 	return lt
 }
 
-func (srv *server) tickMetrics(ts int64) {
-	srv.Lock()
-
+func (srv *server) tickMetrics() {
 	srv.notify = make(chan int, srv.nEntries)
-	srv.lastTick = ts
 
 	for _, metrics := range srv.metrics {
 		for _, me := range metrics {
-			go srv.tickMetric(ts, me)
+			go srv.tickMetric(me)
 		}
 	}
 
 	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
-	srv.Unlock()
 }
 
-func (srv *server) flushMetrics(ts int64) {
-	srv.Lock()
-
+func (srv *server) flushMetrics() {
 	srv.notify = make(chan int, srv.nEntries)
-	srv.lastTick = ts
 
 	for _, metrics := range srv.metrics {
 		for _, me := range metrics {
-			srv.flushOrDelete(ts, me)
+			srv.flushOrDelete(me)
 		}
 	}
 
 	for i := 0; i < srv.nEntries; i++ {
 		<-srv.notify
 	}
-
-	srv.Unlock()
 }
 
-func (srv *server) tickMetric(ts int64, me *metricEntry) {
+func (srv *server) tickMetric(me *metricEntry) {
 	me.Lock()
 	me.updateIdle()
-	me.updateLiveLog(ts)
+	me.updateLiveLog(srv.lastTick)
 	srv.notify <- 1
 	me.Unlock()
 }
 
-func (srv *server) flushOrDelete(ts int64, me *metricEntry) {
+func (srv *server) flushOrDelete(me *metricEntry) {
 	me.Lock()
 
 	me.updateIdle()
 
 	if me.recvdInput || len(me.watchers) != 0 {
-		me.recvdInput = false
-		go srv.flushMetric(ts, me)
+		go srv.flushMetric(me)
 	} else if me.idleTicks > LiveLogSize {
 		srv.nEntries--
 		delete(srv.metrics[me.typ], me.name)
@@ -284,8 +268,7 @@ func (me *metricEntry) updateIdle() {
 }
 
 func (me *metricEntry) updateLiveLog(ts int64) {
-	var data []float64
-	data = me.tick()
+	data := me.tick()
 	for ch, live := range me.liveLog {
 		live[me.livePtr] = data[ch]
 	}
@@ -304,17 +287,22 @@ func (me *metricEntry) updateLiveLog(ts int64) {
 	}
 }
 
-func (srv *server) flushMetric(ts int64, me *metricEntry) {
+func (srv *server) flushMetric(me *metricEntry) {
 	me.Lock()
 
-	me.updateLiveLog(ts)
-
+	me.updateLiveLog(srv.lastTick)
 	data := me.flush()
-	for i, n := range metricTypes[me.typ].channels {
-		err := srv.ds.Insert(srv.prefix+me.name+":"+n, Record{ts, data[i]})
-		if err != nil {
-			log.Println("Server.flushMetric:", err)
+
+	if me.recvdInput {
+		for i, n := range metricTypes[me.typ].channels {
+			dbName := srv.prefix + me.name + ":" + n
+			rec := Record{Ts: srv.lastTick, Value: data[i]}
+			err := srv.ds.Insert(dbName, rec)
+			if err != nil {
+				log.Println("Server.flushMetric:", err)
+			}
 		}
+		me.recvdInput = false
 	}
 
 	for _, w := range me.watchers {
@@ -395,8 +383,8 @@ func (srv *server) Log(name string, chs []string, from, length, gran int64) ([][
 	}
 
 	output := make([][]float64, length)
-	for i, ts := int64(0), from+60; i < length; i++ {
-		input = feedAggregator(aggr, input, ts, gran)
+	for i, ts := int64(0), from; i < length; i++ {
+		feedAggregator(aggr, input, ts, gran)
 		ts += gran60
 		output[i] = aggr.get()
 	}
@@ -409,7 +397,7 @@ func (srv *server) initAggregator(aggr aggregator, name string, typ MetricType, 
 	input, tmp := make([][]Record, len(inChs)), make([]float64, len(inChs))
 	for i, j := range inChs {
 		ch := metricTypes[typ].channels[j]
-		in, err := srv.ds.Query(srv.prefix+name+":"+ch, from, until)
+		in, err := srv.ds.Query(srv.prefix+name+":"+ch, from+60, until)
 		if err != nil {
 			return nil, err
 		}
@@ -420,9 +408,10 @@ func (srv *server) initAggregator(aggr aggregator, name string, typ MetricType, 
 	return input, nil
 }
 
-func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) [][]Record {
+func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) {
 	tmp := make([]float64, len(in))
 	for j := int64(0); j < gran; j++ {
+		ts += 60
 		missing := false
 		for k := range tmp {
 			for len(in[k]) > 0 && in[k][0].Ts < ts {
@@ -437,9 +426,7 @@ func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) [][]Record {
 		if !missing {
 			aggr.put(tmp)
 		}
-		ts += 60
 	}
-	return in
 }
 
 func (srv *server) LiveWatch(name string, chs []string) (*Watcher, error) {
