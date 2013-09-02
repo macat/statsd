@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-const MsgMaxSize = 1024
+const MsgMaxSize = 512
 
 type UDPInjector struct {
 	Addr    string
@@ -67,6 +67,7 @@ func (ui *UDPInjector) run() {
 			continue
 		}
 		go func() {
+			ui.wg.Add(1)
 			ui.Server.InjectBytes(buff[0:n])
 			ui.wg.Done()
 		}()

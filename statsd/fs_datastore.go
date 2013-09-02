@@ -296,7 +296,6 @@ func (ds *FsDatastore) write(N uint64) {
 	for n := -1; ; {
 		ds.mu.Lock()
 		if len(ds.queue) == 0 && ds.N == N {
-			log.Println("Tail empty.") // TODO
 			ds.cond.Wait()
 		}
 		if ds.N != N {
