@@ -6,17 +6,7 @@ import (
 	"time"
 )
 
-// TODO: clean shutdown (save and restore the live log)
-
-type Server interface {
-	Start() error
-	Inject(*Metric) error
-	InjectBytes([]byte)
-	LiveLog(name string, chs []string) ([][]float64, int64, error)
-	Log(name string, chs []string, from, length, gran int64) ([][]float64, error)
-	LiveWatch(name string, chs []string) (*Watcher, error)
-	Watch(name string, chs []string, offs, gran int64) (*Watcher, error)
-}
+// TODO: save and restore the live log
 
 type Metric struct {
 	Name       string
@@ -37,14 +27,15 @@ const (
 
 const LiveLogSize = 600
 
-type server struct {
-	mu      sync.Mutex
-	ds       Datastore
-	prefix   string
+type Server struct {
+	Ds       Datastore
+	Prefix   string
+	mu       sync.Mutex
+	wg       sync.WaitGroup
 	metrics  [NMetricTypes]map[string]*metricEntry
-	nEntries int
+	running  bool
 	lastTick int64
-	notify   chan int
+	N        uint64
 }
 
 type metricEntry struct {
@@ -73,21 +64,45 @@ type Watcher struct {
 	offs int64
 }
 
-func NewServer(ds Datastore, prefix string) Server {
-	srv := &server{ds: ds, prefix: prefix}
+func (srv *Server) Start() error {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if srv.running {
+		return Error("Server already running")
+	}
+
 	for i := range srv.metrics {
 		srv.metrics[i] = make(map[string]*metricEntry)
 	}
-	return srv
-}
-
-func (srv *server) Start() error {
+	srv.running = true
 	srv.lastTick = time.Now().Unix()
-	go srv.tick()
+	go srv.tick(srv.N)
 	return nil
 }
 
-func (srv *server) InjectBytes(msg []byte) {
+func (srv *Server) Stop() error {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if !srv.running {
+		return Error("Server not running")
+	}
+
+	for i, metrics := range srv.metrics {
+		for _, me := range metrics {
+			me.Lock()
+			for _, w := range me.watchers {
+				close(w.in)
+			}
+			me.Unlock()
+		}
+		srv.metrics[i] = nil
+	}
+	srv.running = false
+	srv.N++
+	return nil
+}
+
+func (srv *Server) InjectBytes(msg []byte) {
 	for i, j := 0, -1; i <= len(msg); i++ {
 		if i != len(msg) && msg[i] != '\n' || i == j+1 {
 			continue
@@ -105,7 +120,7 @@ func (srv *server) InjectBytes(msg []byte) {
 	}
 }
 
-func (srv *server) Inject(metric *Metric) error {
+func (srv *Server) Inject(metric *Metric) error {
 	if metric.Type < 0 || metric.Type >= NMetricTypes {
 		return ErrTypeInvalid
 	}
@@ -120,6 +135,9 @@ func (srv *server) Inject(metric *Metric) error {
 	}
 
 	me := srv.getMetricEntry(metric.Type, metric.Name)
+	if me == nil {
+		return Error("Server not running")
+	}
 	me.recvdInput = true
 	me.recvdInputTick = true
 	me.inject(metric)
@@ -127,8 +145,12 @@ func (srv *server) Inject(metric *Metric) error {
 	return nil
 }
 
-func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
+func (srv *Server) getMetricEntry(typ MetricType, name string) *metricEntry {
 	srv.mu.Lock()
+	if !srv.running {
+		srv.mu.Unlock()
+		return nil
+	}
 
 	me := srv.metrics[typ][name]
 	if me == nil {
@@ -156,7 +178,6 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 		me.init(initData)
 
 		srv.metrics[typ][name] = me
-		srv.nEntries++
 	}
 
 	me.Lock()
@@ -164,11 +185,11 @@ func (srv *server) getMetricEntry(typ MetricType, name string) *metricEntry {
 	return me
 }
 
-func (srv *server) getChannelDefault(typ MetricType, name string, i int, ts int64) float64 {
+func (srv *Server) getChannelDefault(typ MetricType, name string, i int, ts int64) float64 {
 	mt := metricTypes[typ]
 	def := mt.defaults[i]
 	if mt.persist[i] {
-		rec, err := srv.ds.LatestBefore(srv.prefix+name+":"+mt.channels[i], ts)
+		rec, err := srv.Ds.LatestBefore(srv.Prefix+name+":"+mt.channels[i], ts)
 		if err == nil {
 			def = rec.Value
 		} else if err != ErrNoData {
@@ -178,13 +199,18 @@ func (srv *server) getChannelDefault(typ MetricType, name string, i int, ts int6
 	return def
 }
 
-func (srv *server) tick() {
-	tickCh := time.Tick(time.Second)
+func (srv *Server) tick(N uint64) {
+	ticker := time.NewTicker(time.Second)
 	for {
 		select {
-		case t := <-tickCh:
+		case t := <-ticker.C:
 			ts := t.Unix()
 			srv.mu.Lock()
+			if srv.N != N {
+				ticker.Stop()
+				srv.mu.Unlock()
+				return
+			}
 			for srv.lastTick < ts {
 				srv.lastTick++
 				if srv.lastTick%60 != 0 {
@@ -198,61 +224,43 @@ func (srv *server) tick() {
 	}
 }
 
-func (srv *server) getLastTick() int64 {
-	srv.mu.Lock()
-	lt := srv.lastTick
-	srv.mu.Unlock()
-	return lt
-}
-
-func (srv *server) tickMetrics() {
-	srv.notify = make(chan int, srv.nEntries)
-
+func (srv *Server) tickMetrics() {
 	for _, metrics := range srv.metrics {
+		srv.wg.Add(len(metrics))
 		for _, me := range metrics {
 			go srv.tickMetric(me)
 		}
 	}
-
-	for i := 0; i < srv.nEntries; i++ {
-		<-srv.notify
-	}
+	srv.wg.Wait()
 }
 
-func (srv *server) flushMetrics() {
-	srv.notify = make(chan int, srv.nEntries)
-
+func (srv *Server) flushMetrics() {
 	for _, metrics := range srv.metrics {
 		for _, me := range metrics {
 			srv.flushOrDelete(me)
 		}
 	}
-
-	for i := 0; i < srv.nEntries; i++ {
-		<-srv.notify
-	}
+	srv.wg.Wait()
 }
 
-func (srv *server) tickMetric(me *metricEntry) {
+func (srv *Server) tickMetric(me *metricEntry) {
 	me.Lock()
 	me.updateIdle()
 	me.updateLiveLog(srv.lastTick)
-	srv.notify <- 1
 	me.Unlock()
+	srv.wg.Done()
 }
 
-func (srv *server) flushOrDelete(me *metricEntry) {
+func (srv *Server) flushOrDelete(me *metricEntry) {
 	me.Lock()
 
 	me.updateIdle()
 
 	if me.recvdInput || len(me.watchers) != 0 {
+		srv.wg.Add(1)
 		go srv.flushMetric(me)
 	} else if me.idleTicks > LiveLogSize {
-		srv.nEntries--
 		delete(srv.metrics[me.typ], me.name)
-	} else {
-		srv.notify <- 1
 	}
 
 	me.Unlock()
@@ -287,7 +295,7 @@ func (me *metricEntry) updateLiveLog(ts int64) {
 	}
 }
 
-func (srv *server) flushMetric(me *metricEntry) {
+func (srv *Server) flushMetric(me *metricEntry) {
 	me.Lock()
 
 	me.updateLiveLog(srv.lastTick)
@@ -295,9 +303,9 @@ func (srv *server) flushMetric(me *metricEntry) {
 
 	if me.recvdInput {
 		for i, n := range metricTypes[me.typ].channels {
-			dbName := srv.prefix + me.name + ":" + n
+			dbName := srv.Prefix + me.name + ":" + n
 			rec := Record{Ts: srv.lastTick, Value: data[i]}
-			err := srv.ds.Insert(dbName, rec)
+			err := srv.Ds.Insert(dbName, rec)
 			if err != nil {
 				log.Println("Server.flushMetric:", err)
 			}
@@ -319,17 +327,20 @@ func (srv *server) flushMetric(me *metricEntry) {
 		}
 	}
 
-	srv.notify <- 1
 	me.Unlock()
+	srv.wg.Done()
 }
 
-func (srv *server) LiveLog(name string, chs []string) ([][]float64, int64, error) {
+func (srv *Server) LiveLog(name string, chs []string) ([][]float64, int64, error) {
 	typ, err := metricTypeByChannels(chs)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	me := srv.getMetricEntry(typ, name)
+	if me == nil {
+		return nil, 0, Error("Server not running")
+	}
 
 	logs, ptr := make([]*[LiveLogSize]float64, len(chs)), me.livePtr
 	for i, n := range chs {
@@ -356,7 +367,7 @@ func (srv *server) LiveLog(name string, chs []string) ([][]float64, int64, error
 	return result, ts, nil
 }
 
-func (srv *server) Log(name string, chs []string, from, length, gran int64) ([][]float64, error) {
+func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][]float64, error) {
 	if from%60 != 0 || gran < 1 || length < 0 {
 		return nil, ErrInvalid
 	}
@@ -367,18 +378,26 @@ func (srv *server) Log(name string, chs []string, from, length, gran int64) ([][
 		return nil, err
 	}
 
-	maxLength := (srv.getLastTick() - from) / gran60
+	me := srv.getMetricEntry(typ, name)
+	if me == nil {
+		return nil, Error("Server not running")
+	}
+
+	maxLength := (me.lastTick - from) / gran60
+
 	if length > maxLength {
 		length = maxLength
 	}
 
 	if length <= 0 {
+		me.Unlock()
 		return [][]float64{}, nil
 	}
 
 	aggr := metricTypes[typ].aggregator(chs)
 	input, err := srv.initAggregator(aggr, name, typ, from, from+gran60*length)
 	if err != nil {
+		me.Unlock()
 		return nil, err
 	}
 
@@ -389,15 +408,16 @@ func (srv *server) Log(name string, chs []string, from, length, gran int64) ([][
 		output[i] = aggr.get()
 	}
 
+	me.Unlock()
 	return output, nil
 }
 
-func (srv *server) initAggregator(aggr aggregator, name string, typ MetricType, from, until int64) ([][]Record, error) {
+func (srv *Server) initAggregator(aggr aggregator, name string, typ MetricType, from, until int64) ([][]Record, error) {
 	inChs := aggr.channels()
 	input, tmp := make([][]Record, len(inChs)), make([]float64, len(inChs))
 	for i, j := range inChs {
 		ch := metricTypes[typ].channels[j]
-		in, err := srv.ds.Query(srv.prefix+name+":"+ch, from+60, until)
+		in, err := srv.Ds.Query(srv.Prefix+name+":"+ch, from+60, until)
 		if err != nil {
 			return nil, err
 		}
@@ -429,7 +449,7 @@ func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) {
 	}
 }
 
-func (srv *server) LiveWatch(name string, chs []string) (*Watcher, error) {
+func (srv *Server) LiveWatch(name string, chs []string) (*Watcher, error) {
 	typ, err := metricTypeByChannels(chs)
 	if err != nil {
 		return nil, err
@@ -447,16 +467,19 @@ func (srv *server) LiveWatch(name string, chs []string) (*Watcher, error) {
 	}
 
 	me := srv.getMetricEntry(typ, name)
+	if me == nil {
+		return nil, Error("Server not running")
+	}
 	w.me = me
 	w.Ts = me.lastTick
 	me.watchers = append(me.watchers, w)
-	me.Unlock()
-
 	go w.run()
+
+	me.Unlock()
 	return w, nil
 }
 
-func (srv *server) Watch(name string, chs []string, offs, gran int64) (*Watcher, error) {
+func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher, error) {
 	if offs%60 != 0 || gran < 1 {
 		return nil, ErrInvalid
 	}
@@ -478,6 +501,9 @@ func (srv *server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	w.C = w.out
 
 	me := srv.getMetricEntry(typ, name)
+	if me == nil {
+		return nil, Error("Server not running")
+	}
 	w.me = me
 	w.Ts = me.lastTick - ((me.lastTick-offs)%gran60+gran60)%gran60
 
@@ -489,9 +515,9 @@ func (srv *server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	feedAggregator(w.aggr, input, w.Ts, gran)
 
 	me.watchers = append(me.watchers, w)
-	me.Unlock()
-
 	go w.run()
+
+	me.Unlock()
 	return w, nil
 }
 
@@ -517,8 +543,7 @@ func (w *Watcher) run() {
 	for w.in != nil || len(buff) > 0 {
 		out, data := chan []float64(nil), []float64(nil)
 		if len(buff) > 0 {
-			out = w.out
-			data = buff[0]
+			out, data = w.out, buff[0]
 		}
 		select {
 		case out <- data:

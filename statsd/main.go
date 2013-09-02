@@ -2,56 +2,59 @@ package main
 
 import (
 	"code.google.com/p/go.net/websocket"
-	"database/sql"
 	"fmt"
-	_ "github.com/lib/pq"
 	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func main() {
-	db, err := sql.Open("postgres", "sslmode=disable")
-	if err != nil {
-		log.Println(err.Error())
-		return
-	}
-	_ = db
-
-	ds := NewFsDatastore("./data")
+	log.Println("Started.")
+	ds := &FsDatastore{Dir: "./data"}
 	if err := ds.Open(); err != nil {
 		log.Println(err)
 		return
 	}
 
-	for i := 0; i < 1; i++ {
-		srv := NewServer(ds, "srv"+strconv.Itoa(i)+"/")
-
-		if i == 0 {
-			go func() {
-				httpSrv := http.Server{
-					Addr:    ":6000",
-					Handler: srv.(*server),
-				}
-				httpSrv.ListenAndServe()
-			}()
-		}
-
-		err = srv.Start()
-		if err != nil {
-			log.Println(err.Error())
-			return
-		}
-
-		inj := UDPInjector{Addr: ":" + strconv.Itoa(6000+i), Server: srv}
-		inj.Start()
+	srv := &Server{Ds: ds}
+	if err := srv.Start(); err != nil {
+		log.Println(err)
+		return
 	}
+
+	inj := UDPInjector{Addr: ":6000", Server: srv}
+	if err := inj.Start(); err != nil {
+		log.Println(err)
+		return
+	}
+
+	/*
+		go func () {
+			time.Sleep(1*time.Minute)
+			start := time.Now()
+			inj.Stop()
+			srv.Stop()
+			ds.Close()
+			finish := time.Now()
+			log.Println("Stopped in", finish.Sub(start).Seconds(), "seconds.")
+		}()
+	*/
+
+	go func() {
+		httpSrv := http.Server{
+			Addr:    ":6000",
+			Handler: srv,
+		}
+		httpSrv.ListenAndServe()
+	}()
+
 	<-make(chan int)
 }
 
-func (srv *server) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {
+func (srv *Server) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {
 	path := rq.URL.Path
 	if len(path) == 0 || path[0] != '/' {
 		return

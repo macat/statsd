@@ -10,24 +10,25 @@ import (
 )
 
 const (
-	fsDsISize      = 16
-	fsDsDSize      = 8
+	fsDsISize = 16
+	fsDsDSize = 8
 )
 
 type FsDatastore struct {
-	Dir, dir string
-	mu       sync.Mutex
-	cond     sync.Cond
-	notify   chan int
-	streams  map[string]*fsDsStream
-	queue    []*fsDsStream
-	running  bool
+	Dir     string
+	mu      sync.Mutex
+	cond    sync.Cond
+	streams map[string]*fsDsStream
+	queue   []*fsDsStream
+	running bool
+	N       uint64
+	wg      sync.WaitGroup
 }
 
 type fsDsStream struct {
 	sync.Mutex
+	ds       *FsDatastore
 	name     string
-	dir      string
 	tail     []fsDsRecord
 	dat, idx *os.File
 	valid    bool
@@ -37,11 +38,12 @@ type fsDsStream struct {
 }
 
 type fsDsRecord struct {
-	ts    int64
-	value float64
+	Ts    int64
+	Value float64
 }
 
 type fsDsSnapshot struct {
+	ds       *FsDatastore
 	tail     []fsDsRecord
 	dat, idx *os.File
 	lastWr   int64
@@ -49,14 +51,9 @@ type fsDsSnapshot struct {
 	isize    int64
 }
 
-func NewFsDatastore(dir string) *FsDatastore {
-	return &FsDatastore{Dir: dir}
-}
-
 func (ds *FsDatastore) Open() error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
-
 	if ds.running {
 		return Error("Datastore already running")
 	}
@@ -64,18 +61,18 @@ func (ds *FsDatastore) Open() error {
 	if fi, err := os.Stat(ds.Dir); err != nil {
 		return err
 	} else if !fi.IsDir() {
-		return Error("Not a directory: " + ds.dir)
+		return Error("Not a directory: " + ds.Dir)
 	}
 
-	ds.dir = ds.Dir + string(os.PathSeparator)
 	ds.streams = make(map[string]*fsDsStream)
 	ds.cond.L = &ds.mu
-	ds.notify = make(chan int)
 	if err := ds.loadTails(); err != nil {
+		ds.streams = nil
+		ds.queue = nil
 		return err
 	}
 	ds.running = true
-	go ds.write(ds.notify)
+	go ds.write(ds.N)
 	return nil
 }
 
@@ -86,19 +83,24 @@ func (ds *FsDatastore) Close() error {
 		return Error("Datastore not running")
 	}
 
+	ds.N++
+	ds.cond.Broadcast()
+	for _, st := range ds.streams {
+		st.Lock()
+		st.Unlock()
+	}
+	ds.wg.Wait()
+
 	if err := ds.saveTails(); err != nil {
 		log.Println("FsDatastore.Close:", err)
-		if err := os.Remove(ds.dir + "tail_data"); err != nil {
+		if err := os.Remove(ds.tailFile()); err != nil {
 			log.Println("FsDatastore.Close:", err)
 		}
 	}
-	notify := ds.notify
 	ds.running = false
 	ds.streams = nil
 	ds.queue = nil
-	ds.cond.Signal()
 	ds.mu.Unlock()
-	<-notify
 	return nil
 }
 
@@ -107,7 +109,7 @@ func (ds *FsDatastore) Insert(name string, r Record) error {
 	if st == nil {
 		return Error("Datastore not running")
 	}
-	st.tail = append(st.tail, fsDsRecord{ts: r.Ts, value: r.Value})
+	st.tail = append(st.tail, fsDsRecord{Ts: r.Ts, Value: r.Value})
 	st.Unlock()
 	return nil
 }
@@ -185,13 +187,13 @@ func (ds *FsDatastore) Query(name string, from, until int64) ([]Record, error) {
 
 	last := s.lastWr
 	for _, r := range s.tail {
-		if r.ts%60 != 0 || last >= r.ts {
+		if r.Ts%60 != 0 || last >= r.Ts {
 			continue
 		}
-		if r.ts >= from || r.ts <= until {
-			result = append(result, Record{Ts: r.ts, Value: r.value})
+		if r.Ts >= from || r.Ts <= until {
+			result = append(result, Record{Ts: r.Ts, Value: r.Value})
 		}
-		last = r.ts
+		last = r.Ts
 	}
 
 	return result, nil
@@ -211,7 +213,7 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 	}
 
 	if n := s.findTail(ts); n != -1 {
-		return Record{Ts: s.tail[n].ts, Value: s.tail[n].value}, nil
+		return Record{Ts: s.tail[n].Ts, Value: s.tail[n].Value}, nil
 	}
 
 	n, err := s.findIdx(ts)
@@ -280,25 +282,25 @@ func (ds *FsDatastore) takeSnapshot(name string) (*fsDsSnapshot, error) {
 func (ds *FsDatastore) createStream(name string, tail []fsDsRecord) {
 	st := &fsDsStream{
 		name: name,
-		dir:  ds.dir,
 		tail: tail,
+		ds:   ds,
 	}
 	ds.streams[name] = st
 	ds.queue = append(ds.queue, st)
 	if len(ds.queue) == 1 {
-		ds.cond.Signal()
+		ds.cond.Broadcast()
 	}
 }
 
-func (ds *FsDatastore) write(notify chan int) {
+func (ds *FsDatastore) write(N uint64) {
 	for n := -1; ; {
 		ds.mu.Lock()
-		if len(ds.queue) == 0 && ds.running {
+		if len(ds.queue) == 0 && ds.N == N {
+			log.Println("Tail empty.") // TODO
 			ds.cond.Wait()
 		}
-		if !ds.running {
+		if ds.N != N {
 			ds.mu.Unlock()
-			notify <- 1
 			return
 		}
 		l := len(ds.queue)
@@ -321,7 +323,7 @@ func (ds *FsDatastore) write(notify chan int) {
 			ds.mu.Unlock()
 		} else {
 			ds.mu.Unlock()
-			if err := st.writeTail(); err != nil {
+			if err := st.flushTail(); err != nil {
 				st.valid = false
 				log.Println("FsDatastore.write:", err)
 			}
@@ -335,8 +337,12 @@ func (ds *FsDatastore) write(notify chan int) {
 	}
 }
 
+func (ds *FsDatastore) tailFile() string {
+	return ds.Dir + string(os.PathSeparator) + "tail_data"
+}
+
 func (ds *FsDatastore) saveTails() error {
-	f, err := os.Create(ds.dir + "tail_data")
+	f, err := os.Create(ds.tailFile())
 	if err != nil {
 		return err
 	}
@@ -354,25 +360,19 @@ func (ds *FsDatastore) saveTails() error {
 	i := 0
 	for n, st = range ds.streams {
 		i++
-		st.Lock()
 		name := []byte(n)
 		if err = binary.Write(wr, le, uint64(len(name))); err != nil {
-			break
+			return err
 		}
 		if err = binary.Write(wr, le, uint64(len(st.tail))); err != nil {
-			break
+			return err
 		}
 		if err = binary.Write(wr, le, name); err != nil {
-			break
+			return err
 		}
 		if err = binary.Write(wr, le, st.tail); err != nil {
-			break
+			return err
 		}
-		st.Unlock()
-	}
-	if err != nil {
-		st.Unlock()
-		return err
 	}
 
 	if err = wr.Flush(); err != nil {
@@ -385,7 +385,7 @@ func (ds *FsDatastore) saveTails() error {
 }
 
 func (ds *FsDatastore) loadTails() error {
-	f, err := os.Open(ds.dir + "tail_data")
+	f, err := os.Open(ds.tailFile())
 	if os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
@@ -421,7 +421,7 @@ func (ds *FsDatastore) loadTails() error {
 	return nil
 }
 
-func (st *fsDsStream) writeTail() error {
+func (st *fsDsStream) flushTail() error {
 	if err := st.openFiles(); err != nil {
 		return err
 	}
@@ -431,23 +431,23 @@ func (st *fsDsStream) writeTail() error {
 	dsize, isize, lastWr := st.dsize, st.isize, st.lastWr
 
 	for _, r := range st.tail {
-		if r.ts%60 != 0 {
+		if r.Ts%60 != 0 {
 			log.Println("fsDsStream.writeTail: Timestamp not divisible by 60")
 			continue
-		} else if lastWr >= r.ts {
+		} else if lastWr >= r.Ts {
 			log.Println("fsDsStream.writeTail: Timestamp in the past")
 			continue
 		}
 
 		le := binary.LittleEndian
-		binary.Write(dbuff, le, r.value)
+		binary.Write(dbuff, le, r.Value)
 		dsize += fsDsDSize
 		lastWr += 60
 
-		if r.ts > lastWr {
-			binary.Write(ibuff, le, []int64{r.ts, dsize - fsDsDSize})
+		if r.Ts > lastWr {
+			binary.Write(ibuff, le, []int64{r.Ts, dsize - fsDsDSize})
 			isize += fsDsISize
-			lastWr = r.ts
+			lastWr = r.Ts
 		}
 	}
 
@@ -469,12 +469,16 @@ func (st *fsDsStream) writeTail() error {
 	return nil
 }
 
+func (st *fsDsStream) path() string {
+	return st.ds.Dir + string(os.PathSeparator) + st.name
+}
+
 func (st *fsDsStream) openFiles() error {
-	dat, err := os.OpenFile(st.dir+st.name+".dat", os.O_CREATE|os.O_RDWR, 0666)
+	dat, err := os.OpenFile(st.path()+".dat", os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return err
 	}
-	idx, err := os.OpenFile(st.dir+st.name+".idx", os.O_CREATE|os.O_RDWR, 0666)
+	idx, err := os.OpenFile(st.path()+".idx", os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		dat.Close()
 		return err
@@ -541,6 +545,7 @@ func (st *fsDsStream) takeSnapshot() (*fsDsSnapshot, error) {
 		return nil, err
 	}
 	s := &fsDsSnapshot{
+		ds:     st.ds,
 		tail:   append([]fsDsRecord(nil), st.tail...),
 		dat:    st.dat,
 		idx:    st.idx,
@@ -549,10 +554,12 @@ func (st *fsDsStream) takeSnapshot() (*fsDsSnapshot, error) {
 		isize:  st.isize,
 	}
 	st.dat, st.dat = nil, nil
+	st.ds.wg.Add(1)
 	return s, nil
 }
 
 func (s *fsDsSnapshot) close() {
+	s.ds.wg.Done()
 	s.dat.Close()
 	s.idx.Close()
 	s.dat, s.idx = nil, nil
@@ -606,15 +613,15 @@ func (s *fsDsSnapshot) findIdx(ts int64) (int64, error) {
 func (s *fsDsSnapshot) findTail(ts int64) int64 {
 	last, k := s.lastWr, -1
 	for i, r := range s.tail {
-		if r.ts%60 != 0 || last >= r.ts {
+		if r.Ts%60 != 0 || last >= r.Ts {
 			continue
 		}
-		if r.ts <= ts {
+		if r.Ts <= ts {
 			k = i
 		} else {
 			break
 		}
-		last = r.ts
+		last = r.Ts
 	}
 	return int64(k)
 }

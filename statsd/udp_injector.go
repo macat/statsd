@@ -9,12 +9,12 @@ import (
 const MsgMaxSize = 1024
 
 type UDPInjector struct {
-	Addr     string
-	Server   Server
-	mu       sync.Mutex
-	conn     *net.UDPConn
-	running  bool
-	ch1, ch2 chan int
+	Addr    string
+	Server  *Server
+	mu      sync.Mutex
+	conn    *net.UDPConn
+	running bool
+	wg      sync.WaitGroup
 }
 
 func (ui *UDPInjector) Start() error {
@@ -36,9 +36,8 @@ func (ui *UDPInjector) Start() error {
 	}
 
 	ui.conn, ui.running = conn, true
-	ui.ch1, ui.ch2 = make(chan int, 1), make(chan int)
 
-	go ui.run(ui.Server)
+	go ui.run()
 	return nil
 }
 
@@ -50,28 +49,26 @@ func (ui *UDPInjector) Stop() error {
 		return Error("Injector not running")
 	}
 
-	ui.ch1 <- 1
+	ui.running = false
 	ui.conn.Close()
-	<-ui.ch2
+	ui.wg.Wait()
 	return nil
 }
 
-func (ui *UDPInjector) run(srv Server) {
-loop:
+func (ui *UDPInjector) run() {
 	for {
-		select {
-		case <-ui.ch1:
-			break loop
-		default:
-			buff := make([]byte, MsgMaxSize)
-			n, err := ui.conn.Read(buff)
-			if err != nil {
-				log.Println("UDPConn.Read:", err)
-				continue
-			}
-			go srv.InjectBytes(buff[0:n])
+		if !ui.running {
+			return
 		}
+		buff := make([]byte, MsgMaxSize)
+		n, err := ui.conn.Read(buff)
+		if err != nil {
+			log.Println("UDPConn.Read:", err)
+			continue
+		}
+		go func() {
+			ui.Server.InjectBytes(buff[0:n])
+			ui.wg.Done()
+		}()
 	}
-	ui.running = false
-	ui.ch2 <- 1
 }
