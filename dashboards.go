@@ -17,7 +17,8 @@ var dashboardsRouter = &Transactional{PrefixRouter(map[string]Handler{
 	}),
 	"*uuid": MethodRouter(map[string]Handler{
 		"GET":    HandlerFunc(getDashboard),
-		"PATCH":  HandlerFunc(changeDashboard),
+		"PUT":    HandlerFunc(changeDashboard),
+		"PATHCH": HandlerFunc(changeDashboard),
 		"DELETE": HandlerFunc(deleteDashboard),
 	}),
 })}
@@ -213,11 +214,13 @@ func changeDashboard(t *Task) {
 		return
 	}
 
-	data, ok := t.RecvJson().(map[string]interface{})
+	rawData, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
 		t.Rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
+
+	data := rawData["dashboard"].(map[string]interface{})
 
 	fields := map[string]interface{}{}
 
@@ -320,6 +323,7 @@ func changeDashboard(t *Task) {
 			panic(err)
 		}
 	}
+	sendDashboard(t, t.UUID)
 }
 
 func deleteDashboard(t *Task) {
