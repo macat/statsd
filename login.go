@@ -71,7 +71,6 @@ func login(t *Task) {
 			}
 		}
 	}
-	log.Println(err)
 	if err == nil {
 		http.SetCookie(t.Rw, &http.Cookie{Name: "uid", Value: uid})
 		t.SendJson(map[string]interface{}{"success": true, "id": uid})
