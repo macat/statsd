@@ -80,6 +80,7 @@ func login(t *Task) {
 
 func logout(t *Task) {
 	t.Uid = ""
+	t.SendJsonObject("success", true)
 }
 
 func whoami(t *Task) {
