@@ -9,4 +9,7 @@ var topHandler = NewSession(PrefixRouter(map[string]Handler{
 	"/whoami":      &CheckMethod{"GET", &Transactional{HandlerFunc(whoami)}},
 	"/permissions": permissionsRouter,
 	"/dashboards":  dashboardsRouter,
+	"/services": PrefixRouter(map[string]Handler{
+		"/json": JsonServiceRouter,
+	}),
 }))
