@@ -2,7 +2,7 @@ package main
 
 import (
 	"admin/access"
-	"admin/uuids"
+	"admin/uuid"
 	"net/http"
 	"strconv"
 )
@@ -44,7 +44,7 @@ func grantPermission(t *Task) {
 	}
 
 	objId, ok := data["id"].(string)
-	if !ok || objId != "" && !uuids.ValidUUID(objId) {
+	if !ok || objId != "" && !uuid.Valid(objId) {
 		t.SendError("Invalid 'id'")
 		return
 	}

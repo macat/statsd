@@ -2,7 +2,7 @@ package main
 
 import (
 	"admin/access"
-	"admin/uuids"
+	"admin/uuid"
 	"database/sql"
 	"net/http"
 	"time"
@@ -109,7 +109,7 @@ func createGroup(t *Task) {
 		return
 	}
 
-	id, err := uuids.NewUUID4()
+	id, err := uuid.New4()
 	if err != nil {
 		panic(err)
 	}
@@ -321,7 +321,7 @@ func removeUserFromGroup(t *Task) {
 }
 
 func groupExists(tx *sql.Tx, gid string) bool {
-	if !uuids.ValidUUID(gid) {
+	if !uuid.Valid(gid) {
 		return false
 	}
 
@@ -335,7 +335,7 @@ func groupExists(tx *sql.Tx, gid string) bool {
 }
 
 func userInGroup(tx *sql.Tx, uid, gid string) bool {
-	if !uuids.ValidUUID(uid) || !uuids.ValidUUID(gid) {
+	if !uuid.Valid(uid) || !uuid.Valid(gid) {
 		return false
 	}
 
@@ -352,7 +352,7 @@ func userInGroup(tx *sql.Tx, uid, gid string) bool {
 }
 
 func groupsOfUser(tx *sql.Tx, uid string) []string {
-	if !uuids.ValidUUID(uid) {
+	if !uuid.Valid(uid) {
 		return nil
 	}
 

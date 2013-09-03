@@ -3,7 +3,6 @@ package main
 import (
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
-	"log"
 	"net/http"
 )
 

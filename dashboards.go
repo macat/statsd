@@ -2,7 +2,7 @@ package main
 
 import (
 	"admin/access"
-	"admin/uuids"
+	"admin/uuid"
 	"database/sql"
 	"log"
 	"net/http"
@@ -120,7 +120,7 @@ func createDashboard(t *Task) {
 		}
 	}
 
-	id, err := uuids.NewUUID4()
+	id, err := uuid.New4()
 	if err != nil {
 		panic(err)
 	}
@@ -352,7 +352,7 @@ func deleteDashboard(t *Task) {
 }
 
 func dashboardExists(tx *sql.Tx, id string) bool {
-	if !uuids.ValidUUID(id) {
+	if !uuid.Valid(id) {
 		return false
 	}
 	row := tx.QueryRow(`

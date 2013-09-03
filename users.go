@@ -2,7 +2,7 @@ package main
 
 import (
 	"admin/access"
-	"admin/uuids"
+	"admin/uuid"
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
 	"net/http"
@@ -172,7 +172,7 @@ func createUser(t *Task) {
 		panic(err)
 	}
 
-	id, err := uuids.NewUUID4()
+	id, err := uuid.New4()
 	if err != nil {
 		panic(err)
 	}
@@ -380,7 +380,7 @@ func deleteUser(t *Task) {
 }
 
 func userExists(tx *sql.Tx, uid string) bool {
-	if !uuids.ValidUUID(uid) {
+	if !uuid.Valid(uid) {
 		return false
 	}
 
