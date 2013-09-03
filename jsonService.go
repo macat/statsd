@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/access"
 	"admin/uuid"
 	"database/sql"
 	"encoding/json"
@@ -146,6 +147,11 @@ var JsonServiceRouter = &Transactional{PrefixRouter{
 // Controllers
 
 func getJsonServices(t *Task) {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "services_json", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	svcs, err := JsonServices(t.Tx)
 	if err != nil {
 		panic(err)
@@ -163,6 +169,11 @@ func getJsonServices(t *Task) {
 }
 
 func postJsonService(t *Task) {
+	if !access.HasPermission(t.Tx, t.Uid, "POST", "services_json", "") {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
 		t.SendError("Invalid JSON")
@@ -188,6 +199,11 @@ func postJsonService(t *Task) {
 }
 
 func getJsonService(t *Task) {
+	if !access.HasPermission(t.Tx, t.Uid, "GET", "services_json", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	svc := &JsonService{Tx: t.Tx, Id: t.UUID}
 	if err := svc.Load(); err == sql.ErrNoRows {
 		t.Rw.WriteHeader(http.StatusNotFound)
@@ -203,6 +219,11 @@ func getJsonService(t *Task) {
 }
 
 func putJsonService(t *Task) {
+	if !access.HasPermission(t.Tx, t.Uid, "PUT", "services_json", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	svc := &JsonService{Tx: t.Tx, Id: t.UUID}
 	if err := svc.Load(); err == sql.ErrNoRows {
 		t.Rw.WriteHeader(http.StatusNotFound)
@@ -230,6 +251,11 @@ func putJsonService(t *Task) {
 }
 
 func deleteJsonService(t *Task) {
+	if !access.HasPermission(t.Tx, t.Uid, "DELETE", "services_json", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	svc := &JsonService{Tx: t.Tx, Id: t.UUID}
 	if err := svc.Load(); err == sql.ErrNoRows {
 		t.Rw.WriteHeader(http.StatusNotFound)
@@ -244,6 +270,11 @@ func deleteJsonService(t *Task) {
 }
 
 func proxyJsonServiceData(t *Task) {
+	if !access.HasPermission(t.Tx, t.Uid, t.Rq.Method, "services_json_data", t.UUID) {
+		t.Rw.WriteHeader(http.StatusForbidden)
+		return
+	}
+
 	svc := &JsonService{Tx: t.Tx, Id: t.UUID}
 	if err := svc.Load(); err == sql.ErrNoRows {
 		t.Rw.WriteHeader(http.StatusNotFound)
