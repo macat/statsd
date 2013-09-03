@@ -4,9 +4,9 @@ import (
 	"admin/uuid"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
-	"io"
 )
 
 // TODO: permissions
@@ -176,15 +176,15 @@ func postJsonService(t *Task) {
 	}
 
 	svc := &JsonService{
-		Tx: t.Tx,
-		Url: url,
+		Tx:     t.Tx,
+		Url:    url,
 		Config: data["config"],
 	}
 	if err := svc.Create(); err != nil {
 		panic(err)
 	}
 
-	t.SendJson(map[string]string{"id":svc.Id})
+	t.SendJson(map[string]string{"id": svc.Id})
 }
 
 func getJsonService(t *Task) {
@@ -267,12 +267,12 @@ func proxyJsonServiceData(t *Task) {
 	URL.RawQuery = values.Encode()
 
 	req := &http.Request{
-		Method: t.Rq.Method,
-		URL: URL,
-		Body: t.Rq.Body,
-		Close: true,
+		Method:        t.Rq.Method,
+		URL:           URL,
+		Body:          t.Rq.Body,
+		Close:         true,
 		ContentLength: t.Rq.ContentLength,
-		Header: make(http.Header),
+		Header:        make(http.Header),
 	}
 	req.Header.Add("Authorization", t.Rq.Header.Get("Authorization"))
 	req.Header.Add("Content-Type", t.Rq.Header.Get("Content-Type"))

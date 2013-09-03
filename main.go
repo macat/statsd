@@ -1,18 +1,18 @@
 package main
 
 import (
-	"os"
-	"strings"
-	"github.com/joho/godotenv"
 	"database/sql"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 )
 
 const (
-	addr     = ":9000"
-	appRoot  = "/"
+	addr    = ":9000"
+	appRoot = "/"
 )
 
 var (
@@ -28,8 +28,8 @@ func main() {
 
 	dbDriver := os.Getenv("DB_DRIVER")
 	dbSetup := []string{"user=" + os.Getenv("DB_USER"),
-											"dbname=" + os.Getenv("DB_NAME"),
-											"sslmode=" + os.Getenv("DB_SSLMODE")}
+		"dbname=" + os.Getenv("DB_NAME"),
+		"sslmode=" + os.Getenv("DB_SSLMODE")}
 	dsName := strings.Join(dbSetup, " ")
 	if d, err := sql.Open(dbDriver, dsName); err != nil {
 		log.Fatalln(err)
