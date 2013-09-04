@@ -7,7 +7,7 @@ import (
 )
 
 type Task struct {
-	Rw   http.ResponseWriter
+	Rw   *ResponseWriter
 	Rq   *http.Request
 	Tx   *sql.Tx
 	Uid  string
@@ -46,3 +46,14 @@ func (t *Task) RecvJson() interface{} {
 	}
 	return data
 }
+
+type ResponseWriter struct {
+	http.ResponseWriter
+	StatusCode int
+}
+
+func (rw *ResponseWriter) WriteHeader(status int) {
+	rw.StatusCode = status
+	rw.ResponseWriter.WriteHeader(status)
+}
+

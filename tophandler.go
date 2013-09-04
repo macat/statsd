@@ -1,6 +1,6 @@
 package main
 
-var topHandler = NewSession(PrefixRouter(map[string]Handler{
+var topHandler = Logger{NewSession(PrefixRouter(map[string]Handler{
 	"*":            Static("./web-client/app"),
 	"/users":       usersRouter,
 	"/groups":      groupsRouter,
@@ -12,4 +12,4 @@ var topHandler = NewSession(PrefixRouter(map[string]Handler{
 	"/services": PrefixRouter(map[string]Handler{
 		"/json": JsonServiceRouter,
 	}),
-}))
+}))}
