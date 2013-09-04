@@ -50,6 +50,6 @@ func main() {
 }
 
 func topHttpHandler(rw http.ResponseWriter, rq *http.Request) {
-	rw2 := &ResponseWriter{rw, 0}
+	rw2 := &ResponseWriter{rw, 200}
 	topHandler.Serve(&Task{Rw: rw2, Rq: rq})
 }
