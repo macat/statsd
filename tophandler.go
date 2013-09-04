@@ -9,6 +9,7 @@ var topHandler = Logger{NewSession(PrefixRouter(map[string]Handler{
 	"/whoami":      &CheckMethod{"GET", &Transactional{HandlerFunc(whoami)}},
 	"/permissions": permissionsRouter,
 	"/dashboards":  dashboardsRouter,
+	"/widgets":     WidgetRouter,
 	"/services": PrefixRouter(map[string]Handler{
 		"/json": JsonServiceRouter,
 	}),

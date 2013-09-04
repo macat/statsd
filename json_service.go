@@ -10,8 +10,6 @@ import (
 	"net/url"
 )
 
-// TODO: permissions
-
 // Model
 
 type JsonService struct {
