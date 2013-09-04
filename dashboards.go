@@ -68,7 +68,7 @@ func listDashboards(t *Task) {
 		})
 	}
 
-	t.SendJson(map[string]interface{}{"dashboards": dashboards})
+	t.SendJsonObject("dashboards", dashboards)
 }
 
 func createDashboard(t *Task) {

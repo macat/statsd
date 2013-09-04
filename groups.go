@@ -88,7 +88,7 @@ func listGroups(t *Task) {
 			perm)
 	}
 
-	t.SendJson(groups)
+	t.SendJsonObject("groups", groups)
 }
 
 func createGroup(t *Task) {
@@ -196,7 +196,7 @@ func getGroup(t *Task) {
 			perm)
 	}
 
-	t.SendJson(group)
+	t.SendJsonObject("group", group)
 }
 
 func changeGroup(t *Task) {

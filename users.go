@@ -32,7 +32,7 @@ func listUsers(t *Task) {
 	gid := t.Rq.URL.Query().Get("group")
 	if len(gid) > 0 {
 		if !groupExists(t.Tx, gid) {
-			t.SendJson([]int{})
+			t.SendJsonObject("users",[]int{})
 			return
 		}
 		params = append(params, gid)
@@ -122,7 +122,7 @@ func listUsers(t *Task) {
 			perm)
 	}
 
-	t.SendJson(map[string]interface{}{"users": users})
+	t.SendJsonObject("users", users)
 }
 
 func createUser(t *Task) {
@@ -266,7 +266,7 @@ func getUser(t *Task) {
 			perm)
 	}
 
-	t.SendJson(map[string]interface{}{"user": user})
+	t.SendJsonObject("user", user)
 }
 
 func changeUser(t *Task) {

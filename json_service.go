@@ -165,7 +165,7 @@ func getJsonServices(t *Task) {
 			"config": svc.Config,
 		})
 	}
-	t.SendJson(response)
+	t.SendJsonObject("services", response)
 }
 
 func postJsonService(t *Task) {
@@ -195,7 +195,7 @@ func postJsonService(t *Task) {
 		panic(err)
 	}
 
-	t.SendJson(map[string]string{"id": svc.Id})
+	t.SendJsonObject("id", svc.Id)
 }
 
 func getJsonService(t *Task) {
@@ -211,7 +211,7 @@ func getJsonService(t *Task) {
 	} else if err != nil {
 		panic(err)
 	}
-	t.SendJson(map[string]interface{}{
+	t.SendJsonObject("service", map[string]interface{}{
 		"id":     svc.Id,
 		"url":    svc.Url,
 		"config": svc.Config,
