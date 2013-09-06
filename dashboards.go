@@ -2,6 +2,7 @@ package main
 
 import (
 	"admin/access"
+	"admin/pgarray"
 	"admin/uuid"
 	"database/sql"
 	"log"
@@ -31,17 +32,23 @@ func listDashboards(t *Task) {
 
 	rows, err := t.Tx.Query(`
 		SELECT
-			"id",
-			"title",
-			"slug",
-			"category",
-			"position",
-			"created",
-			"creator"
+			d.id,
+			d.title,
+			d.slug,
+			d.category,
+			d.position,
+			d.created,
+			d.creator,
+			array_agg(w.id)
 		FROM
-			"dashboards"
+			dashboards d
+		LEFT JOIN
+			widgets w
+		ON
+			w.dashboard = d.id
+		GROUP BY d.id
 		ORDER BY
-			"position"`)
+			d.position`)
 	if err != nil {
 		panic(err)
 	}
@@ -52,8 +59,9 @@ func listDashboards(t *Task) {
 		var id, title, slug, category, creator string
 		var position int
 		var created time.Time
+		var widgets pgarray.StringSlice
 		err := rows.Scan(&id, &title, &slug, &category, &position, &created,
-			&creator)
+			&creator, &widgets)
 		if err != nil {
 			panic(err)
 		}
@@ -65,6 +73,7 @@ func listDashboards(t *Task) {
 			"position": position,
 			"created":  created.Format("2006-01-02 15:04:05"),
 			"creator":  creator,
+			"widgets":  widgets,
 		})
 	}
 
@@ -77,15 +86,13 @@ func createDashboard(t *Task) {
 		return
 	}
 
-	receivedData, ok := t.RecvJson().(map[string]interface{})
+	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
 		t.Rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	log.Println(receivedData)
-
-	data := receivedData["dashboard"].(map[string]interface{})
+	data = data["dashboard"].(map[string]interface{})
 
 	log.Println(data)
 
