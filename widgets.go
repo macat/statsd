@@ -5,9 +5,9 @@ import (
 	"admin/uuid"
 	"database/sql"
 	"encoding/json"
-	"time"
-	"net/http"
 	"errors"
+	"net/http"
+	"time"
 )
 
 // Model
@@ -26,7 +26,7 @@ var ErrNoDashboard = errors.New("No such dashboard")
 func Widgets(tx *sql.Tx, dashboard string) ([]*Widget, error) {
 	var (
 		rows *sql.Rows
-		err error
+		err  error
 	)
 	if dashboard != "" {
 		if !uuid.Valid(dashboard) {
@@ -48,9 +48,9 @@ func Widgets(tx *sql.Tx, dashboard string) ([]*Widget, error) {
 	for rows.Next() {
 		var (
 			id, typ, dashboard string
-			created time.Time
-			configSl []byte
-			config interface{}
+			created            time.Time
+			configSl           []byte
+			config             interface{}
 		)
 
 		err := rows.Scan(&id, &typ, &dashboard, &created, &configSl)
@@ -64,12 +64,12 @@ func Widgets(tx *sql.Tx, dashboard string) ([]*Widget, error) {
 		}
 
 		result = append(result, &Widget{
-			Tx: tx,
-			Id: id,
-			Type: typ,
+			Tx:        tx,
+			Id:        id,
+			Type:      typ,
 			Dashboard: dashboard,
-			Created: created,
-			Config: config,
+			Created:   created,
+			Config:    config,
 		})
 	}
 
@@ -111,9 +111,9 @@ func (w *Widget) Load() error {
 
 	var (
 		typ, dashboard string
-		configSl []byte
-		created time.Time
-		config interface{}
+		configSl       []byte
+		created        time.Time
+		config         interface{}
 	)
 	err := rows.Scan(&typ, &dashboard, &created, &configSl)
 	if err != nil {
@@ -203,30 +203,32 @@ func postWidget(t *Task) {
 
 	var (
 		typ, dashboard string
-		config interface{}
-		json map[string]interface{}
-		ok bool
+		config         interface{}
+		json           map[string]interface{}
+		ok             bool
 	)
 
 	if json, ok = t.RecvJson().(map[string]interface{}); !ok {
-		t.SendError("Invalid JSON")
+		t.SendError("Invalid JSON parse")
 		return
 	}
 
+	json = json["widget"].(map[string]interface{})
+
 	if typ, ok = json["type"].(string); !ok {
-		t.SendError("Invalid JSON")
+		t.SendError("Invalid type")
 		return
 	}
 	if dashboard, ok = json["dashboard"].(string); !ok {
-		t.SendError("Invalid JSON")
+		t.SendError("Invalid dashboard")
 		return
 	}
 
 	w := &Widget{
-		Tx: t.Tx,
-		Type: typ,
+		Tx:        t.Tx,
+		Type:      typ,
 		Dashboard: dashboard,
-		Config: config,
+		Config:    config,
 	}
 	err := w.Create()
 	if err == ErrNoDashboard {

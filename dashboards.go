@@ -86,15 +86,13 @@ func createDashboard(t *Task) {
 		return
 	}
 
-	receivedData, ok := t.RecvJson().(map[string]interface{})
+	data, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
 		t.Rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	log.Println(receivedData)
-
-	data := receivedData["dashboard"].(map[string]interface{})
+	data = data["dashboard"].(map[string]interface{})
 
 	log.Println(data)
 
