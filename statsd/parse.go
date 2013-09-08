@@ -24,7 +24,7 @@ func ParseMetric(m []byte) (*Metric, error) {
 		if ch == ':' {
 			n = i
 			break
-		} else if ch == '/' || ch == 0 || ch == '\\' {
+		} else if ch < 32 || ch == '/' || ch == '\\' || ch == '"' {
 			return nil, ErrNameInvalid
 		}
 	}
