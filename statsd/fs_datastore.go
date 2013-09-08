@@ -16,6 +16,7 @@ const (
 
 type FsDatastore struct {
 	Dir     string
+	NoSync  bool
 	mu      sync.Mutex
 	cond    sync.Cond
 	streams map[string]*fsDsStream
@@ -374,11 +375,13 @@ func (ds *FsDatastore) saveTails() error {
 		}
 	}
 
-	if err = wr.Flush(); err != nil {
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		return err
+	if !ds.NoSync {
+		if err = wr.Flush(); err != nil {
+			return err
+		}
+		if err = f.Sync(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -524,15 +527,19 @@ func (st *fsDsStream) openFiles() error {
 
 func (st *fsDsStream) closeFiles() {
 	if st.dat != nil {
-		if err := st.dat.Sync(); err != nil {
-			log.Println("fsDsStream.closeFiles:", err)
+		if !st.ds.NoSync {
+			if err := st.dat.Sync(); err != nil {
+				log.Println("fsDsStream.closeFiles:", err)
+			}
 		}
 		st.dat.Close()
 		st.dat = nil
 	}
 	if st.idx != nil {
-		if err := st.idx.Sync(); err != nil {
-			log.Println("fsDsStream.closeFiles:", err)
+		if !st.ds.NoSync {
+			if err := st.idx.Sync(); err != nil {
+				log.Println("fsDsStream.closeFiles:", err)
+			}
 		}
 		st.idx.Close()
 		st.idx = nil
