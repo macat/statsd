@@ -375,13 +375,11 @@ func (ds *FsDatastore) saveTails() error {
 		}
 	}
 
-	if !ds.NoSync {
-		if err = wr.Flush(); err != nil {
-			return err
-		}
-		if err = f.Sync(); err != nil {
-			return err
-		}
+	if err = wr.Flush(); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
 	}
 	return nil
 }
