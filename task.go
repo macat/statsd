@@ -56,4 +56,3 @@ func (rw *ResponseWriter) WriteHeader(status int) {
 	rw.StatusCode = status
 	rw.ResponseWriter.WriteHeader(status)
 }
-
