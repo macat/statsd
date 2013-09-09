@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"bufio"
+	"log"
 )
 
 type HttpApi struct {
@@ -18,6 +19,7 @@ type HttpApi struct {
 	running  bool
 	listener *net.TCPListener
 	httpSrv  http.Server
+	wg       sync.WaitGroup
 }
 
 func (ha *HttpApi) Start() error {
@@ -41,7 +43,12 @@ func (ha *HttpApi) Start() error {
 	ha.running = true
 	ha.listener = listener
 	ha.httpSrv.Handler = http.HandlerFunc(ha.serveHTTP)
-	go ha.httpSrv.Serve(listener)
+	go func () {
+		err := ha.httpSrv.Serve(listener)
+		if err != nil {
+			log.Println("http.Server.Serve:", err)
+		}
+	}()
 	return nil
 }
 
@@ -53,12 +60,16 @@ func (ha *HttpApi) Stop() error {
 		return Error("API not running")
 	}
 
-	// TODO
-
+	ha.running = false
+	ha.listener.Close()
+	ha.wg.Wait()
 	return nil
 }
 
 func (ha *HttpApi) serveHTTP(rw http.ResponseWriter, rq *http.Request) {
+	ha.wg.Add(1)
+	defer ha.wg.Done()
+
 	if len(rq.URL.Path) >= 8 && rq.URL.Path[0:8] == "/static/" { // TODO
 		http.ServeFile(rw, rq, "."+rq.URL.Path)
 		return
@@ -160,8 +171,14 @@ func (ha *HttpApi) serveWs(w *Watcher, n int64, rw http.ResponseWriter, rq *http
 	websocket.Handler(func(conn *websocket.Conn) {
 		buf := new(bytes.Buffer)
 		for values := range w.C {
-			ha.writeRecord(w.Ts, values, buf)
-			buf.WriteTo(conn)
+			if err := ha.writeRecord(w.Ts, values, buf); err != nil {
+				w.Close()
+				break
+			}
+			if _, err := buf.WriteTo(conn); err != nil {
+				w.Close()
+				break
+			}
 			buf.Reset()
 			w.Ts += n
 		}
@@ -183,10 +200,16 @@ func (ha *HttpApi) serveData(ts int64, data [][]float64, n int64, rw http.Respon
 	buf.Flush()
 }
 
-func (ha *HttpApi) writeRecord(ts int64, values []float64, w byteStringWriter) {
+func (ha *HttpApi) writeRecord(ts int64, values []float64, w byteStringWriter) error {
 	w.WriteString(strconv.FormatInt(ts, 10))
 	for _, val := range values {
-		w.WriteByte(',')
-		w.WriteString(strconv.FormatFloat(val, 'e', -1, 64))
+		if err := w.WriteByte(','); err != nil {
+			return err
+		}
+		_, err := w.WriteString(strconv.FormatFloat(val, 'e', -1, 64))
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
