@@ -70,11 +70,6 @@ func (ha *HttpApi) serveHTTP(rw http.ResponseWriter, rq *http.Request) {
 	ha.wg.Add(1)
 	defer ha.wg.Done()
 
-	if len(rq.URL.Path) >= 8 && rq.URL.Path[0:8] == "/static/" { // TODO
-		http.ServeFile(rw, rq, "."+rq.URL.Path)
-		return
-	}
-
 	rw.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	rw.Header().Set("Pragma", "no-cache")
 	rw.Header().Set("Access-Control-Allow-Origin", "*")
