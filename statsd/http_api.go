@@ -1,15 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"code.google.com/p/go.net/websocket"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
-	"bufio"
-	"log"
 )
 
 type HttpApi struct {
@@ -43,7 +43,7 @@ func (ha *HttpApi) Start() error {
 	ha.running = true
 	ha.listener = listener
 	ha.httpSrv.Handler = http.HandlerFunc(ha.serveHTTP)
-	go func () {
+	go func() {
 		err := ha.httpSrv.Serve(listener)
 		if err != nil {
 			log.Println("http.Server.Serve:", err)
