@@ -101,3 +101,15 @@ func ParseMetric(m []byte) (*Metric, error) {
 
 	return &Metric{string(name), typ, value, sr}, nil
 }
+
+func CheckMetricName(name string) error {
+	if len(name) == 0 {
+		return Error("Empty metric name")
+	}
+	for _, ch := range name {
+		if ch < 32 || ch == '/' || ch == '\\' || ch == '"' || ch == ':' {
+			return Error("Invalid characters in metric name")
+		}
+	}
+	return nil
+}

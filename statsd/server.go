@@ -134,9 +134,9 @@ func (srv *Server) Inject(metric *Metric) error {
 		}
 	}
 
-	me := srv.getMetricEntry(metric.Type, metric.Name)
-	if me == nil {
-		return Error("Server not running")
+	me, err := srv.getMetricEntry(metric.Type, metric.Name)
+	if err != nil {
+		return err
 	}
 	me.recvdInput = true
 	me.recvdInputTick = true
@@ -145,11 +145,15 @@ func (srv *Server) Inject(metric *Metric) error {
 	return nil
 }
 
-func (srv *Server) getMetricEntry(typ MetricType, name string) *metricEntry {
+func (srv *Server) getMetricEntry(typ MetricType, name string) (*metricEntry, error) {
+	if err := CheckMetricName(name); err != nil {
+		return nil, err
+	}
+
 	srv.mu.Lock()
 	if !srv.running {
 		srv.mu.Unlock()
-		return nil
+		return nil, Error("Server not running")
 	}
 
 	me := srv.metrics[typ][name]
@@ -182,7 +186,7 @@ func (srv *Server) getMetricEntry(typ MetricType, name string) *metricEntry {
 
 	me.Lock()
 	srv.mu.Unlock()
-	return me
+	return me, nil
 }
 
 func (srv *Server) getChannelDefault(typ MetricType, name string, i int, ts int64) float64 {
@@ -337,9 +341,9 @@ func (srv *Server) LiveLog(name string, chs []string) ([][]float64, int64, error
 		return nil, 0, err
 	}
 
-	me := srv.getMetricEntry(typ, name)
-	if me == nil {
-		return nil, 0, Error("Server not running")
+	me, err := srv.getMetricEntry(typ, name)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	logs, ptr := make([]*[LiveLogSize]float64, len(chs)), me.livePtr
@@ -378,9 +382,9 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 		return nil, err
 	}
 
-	me := srv.getMetricEntry(typ, name)
-	if me == nil {
-		return nil, Error("Server not running")
+	me, err := srv.getMetricEntry(typ, name)
+	if err != nil {
+		return nil, err
 	}
 
 	maxLength := (me.lastTick - from) / gran60
@@ -466,9 +470,9 @@ func (srv *Server) LiveWatch(name string, chs []string) (*Watcher, error) {
 		w.chs[i] = getChannelIndex(typ, n)
 	}
 
-	me := srv.getMetricEntry(typ, name)
-	if me == nil {
-		return nil, Error("Server not running")
+	me, err := srv.getMetricEntry(typ, name)
+	if err != nil {
+		return nil, err
 	}
 	w.me = me
 	w.Ts = me.lastTick
@@ -500,9 +504,9 @@ func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	w.chs = w.aggr.channels()
 	w.C = w.out
 
-	me := srv.getMetricEntry(typ, name)
-	if me == nil {
-		return nil, Error("Server not running")
+	me, err := srv.getMetricEntry(typ, name)
+	if err != nil {
+		return nil, err
 	}
 	w.me = me
 	w.Ts = me.lastTick - ((me.lastTick-offs)%gran60+gran60)%gran60
