@@ -77,6 +77,7 @@ func (ha *HttpApi) serveHTTP(rw http.ResponseWriter, rq *http.Request) {
 
 	rw.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	rw.Header().Set("Pragma", "no-cache")
+	rw.Header().Set("Access-Control-Allow-Origin", "*")
 
 	typ := rq.URL.Query().Get("type")
 	watch := rq.Header.Get("Upgrade") == "websocket"
