@@ -48,7 +48,7 @@ func main() {
 
 	var ui *UDPInjector
 	if len(udpAddr) > 0 {
-		ui := UDPInjector{Addr: udpAddr, Server: srv}
+		ui = &UDPInjector{Addr: udpAddr, Server: srv}
 		if err := ui.Start(); err != nil {
 			log.Println("UDPInjector.Start:", err)
 			return
