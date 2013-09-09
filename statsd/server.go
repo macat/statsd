@@ -21,10 +21,6 @@ func (err Error) Error() string {
 	return string(err)
 }
 
-const (
-	ErrInvalid = Error("Invalid paramter")
-)
-
 const LiveLogSize = 600
 
 type Server struct {
@@ -122,16 +118,13 @@ func (srv *Server) InjectBytes(msg []byte) {
 
 func (srv *Server) Inject(metric *Metric) error {
 	if metric.Type < 0 || metric.Type >= NMetricTypes {
-		return ErrTypeInvalid
+		return Error("Metric type invalid")
 	}
 	if metric.SampleRate <= 0 {
-		return ErrSamplingInvalid
+		return Error("Sample rate invalid")
 	}
-
-	for _, ch := range metric.Name {
-		if ch < 32 || ch == ':' || ch == '/' || ch == '\\' || ch == '"' {
-			return ErrNameInvalid
-		}
+	if err := CheckMetricName(metric.Name); err != nil {
+		return err
 	}
 
 	me, err := srv.getMetricEntry(metric.Type, metric.Name)
@@ -372,8 +365,14 @@ func (srv *Server) LiveLog(name string, chs []string) ([][]float64, int64, error
 }
 
 func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][]float64, error) {
-	if from%60 != 0 || gran < 1 || length < 0 {
-		return nil, ErrInvalid
+	if from%60 != 0 {
+		return nil, Error("From must be divisable by 60")
+	}
+	if gran < 1 {
+		return nil, Error("Granularity must be positive")
+	}
+	if length < 0 {
+		return nil, Error("Length must not be negative")
 	}
 	gran60 := 60 * gran
 
@@ -484,8 +483,11 @@ func (srv *Server) LiveWatch(name string, chs []string) (*Watcher, error) {
 }
 
 func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher, error) {
-	if offs%60 != 0 || gran < 1 {
-		return nil, ErrInvalid
+	if offs%60 != 0 {
+		return nil, Error("Offset must be divisable by 60")
+	}
+	if gran < 1 {
+		return nil, Error("Granularity must be positive")
 	}
 	gran60 := int64(60 * gran)
 

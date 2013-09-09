@@ -16,13 +16,6 @@ var (
 	outputChannels map[string]MetricType = make(map[string]MetricType)
 )
 
-const (
-	ErrChannelInvalid = Error("No such channel")
-	ErrMixingTypes    = Error("Cannot mix different metric types")
-	ErrNoChannels     = Error("No channels specified")
-	ErrNotUnique      = Error("Channel names must be unique")
-)
-
 type metric interface {
 	init([]float64)
 	inject(*Metric)
@@ -54,25 +47,25 @@ func registerMetricType(typ MetricType, mt metricType) {
 
 func metricTypeByChannels(chs []string) (MetricType, error) {
 	if len(chs) == 0 {
-		return -1, ErrNoChannels
+		return -1, Error("No channels specified")
 	}
 
 	typ, ok := outputChannels[chs[0]]
 	if !ok {
-		return -1, ErrChannelInvalid
+		return -1, Error("No such channel")
 	}
 
 	names := map[string]bool{chs[0]: true}
 	for _, ch := range chs[1:] {
 		t, ok := outputChannels[ch]
 		if !ok {
-			return -1, ErrChannelInvalid
+			return -1, Error("No such channel")
 		}
 		if t != typ {
-			return -1, ErrMixingTypes
+			return -1, Error("Cannot mix different metric types")
 		}
 		if names[ch] {
-			return -1, ErrNotUnique
+			return -1, Error("Channel names must be unique")
 		}
 		names[ch] = true
 	}
