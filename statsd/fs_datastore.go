@@ -435,7 +435,7 @@ func (st *fsDsStream) flushTail() error {
 			log.Println("fsDsStream.writeTail: Timestamp not divisible by 60")
 			continue
 		} else if lastWr >= r.Ts {
-			log.Println("fsDsStream.writeTail: Timestamp in the past")
+			log.Println("fsDsStream.writeTail: Timestamp in the past:", st.name)
 			continue
 		}
 
