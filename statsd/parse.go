@@ -2,36 +2,25 @@ package main
 
 import "strconv"
 
-const (
-	ErrNoName          = Error("Name missing")
-	ErrNoType          = Error("Type missing")
-	ErrNoValue         = Error("Value missing")
-	ErrNoSampling      = Error("Sample rate missing")
-	ErrNameInvalid     = Error("Invalid characters in name")
-	ErrTypeInvalid     = Error("Invalid type")
-	ErrValueInvalid    = Error("Invalid value")
-	ErrSamplingInvalid = Error("Invalid sample rate")
-)
-
 func ParseMetric(m []byte) (*Metric, error) {
 	var n int
 
 	if len(m) == 0 {
-		return nil, ErrNoName
+		return nil, Error("Metric name missing")
 	}
 	n = -1
 	for i, ch := range m {
 		if ch == ':' {
 			n = i
 			break
-		} else if ch == '/' || ch == 0 || ch == '\\' {
-			return nil, ErrNameInvalid
+		} else if ch < 32 || ch == '/' || ch == '\\' || ch == '"' {
+			return nil, Error("Invalid characters in metric name")
 		}
 	}
 	if n == 0 {
-		return nil, ErrNoName
+		return nil, Error("Metric name missing")
 	} else if n == -1 || n == len(m)-1 {
-		return nil, ErrNoValue
+		return nil, Error("Metric value missing")
 	}
 	name := m[:n]
 
@@ -43,13 +32,13 @@ func ParseMetric(m []byte) (*Metric, error) {
 		}
 	}
 	if n == 0 {
-		return nil, ErrNoValue
+		return nil, Error("Metric value missing")
 	} else if n == -1 || n == len(m)-1 {
-		return nil, ErrNoType
+		return nil, Error("Metric type missing")
 	}
 	value, err := strconv.ParseFloat(string(m[:n]), 64)
 	if err != nil {
-		return nil, ErrValueInvalid
+		return nil, Error("Metric value invalid")
 	}
 
 	n, m = -1, m[n+1:]
@@ -80,24 +69,36 @@ func ParseMetric(m []byte) (*Metric, error) {
 		}
 	}
 	if typ == MetricType(-1) {
-		return nil, ErrTypeInvalid
+		return nil, Error("Metric type invalid")
 	}
 
 	sr := 1.0
 	if n != len(m) {
 		if n == len(m)-1 {
-			return nil, ErrNoSampling
+			return nil, Error("Sample rate missing")
 		}
 		if m[n+1] != '@' {
-			return nil, ErrSamplingInvalid
+			return nil, Error("Sample rate invalid")
 		}
 		s, err := strconv.ParseFloat(string(m[n+2:]), 64)
 		if err != nil || s <= 0 {
-			return nil, ErrSamplingInvalid
+			return nil, Error("Sample rate invalid")
 		}
 
 		sr = s
 	}
 
 	return &Metric{string(name), typ, value, sr}, nil
+}
+
+func CheckMetricName(name string) error {
+	if len(name) == 0 {
+		return Error("Empty metric name")
+	}
+	for _, ch := range name {
+		if ch < 32 || ch == '/' || ch == '\\' || ch == '"' || ch == ':' {
+			return Error("Invalid characters in metric name")
+		}
+	}
+	return nil
 }

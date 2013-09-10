@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-const MsgMaxSize = 512
+const UdpMsgMaxSize = 512
 
 type UDPInjector struct {
 	Addr    string
@@ -57,19 +57,18 @@ func (ui *UDPInjector) Stop() error {
 
 func (ui *UDPInjector) run() {
 	for {
-		if !ui.running {
-			return
-		}
-		buff := make([]byte, MsgMaxSize)
+		buff := make([]byte, UdpMsgMaxSize)
 		n, err := ui.conn.Read(buff)
+		if n > 0 {
+			ui.wg.Add(1)
+			go func() {
+				ui.Server.InjectBytes(buff[0:n])
+				ui.wg.Done()
+			}()
+		}
 		if err != nil {
 			log.Println("UDPConn.Read:", err)
-			continue
+			break
 		}
-		go func() {
-			ui.wg.Add(1)
-			ui.Server.InjectBytes(buff[0:n])
-			ui.wg.Done()
-		}()
 	}
 }

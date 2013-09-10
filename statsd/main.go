@@ -1,176 +1,92 @@
 package main
 
 import (
-	"code.google.com/p/go.net/websocket"
-	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"strconv"
-	"strings"
-
-//	"time"
+	"os"
+	"os/signal"
+	"flag"
 )
 
 func main() {
-	log.Println("Started.")
-	ds := &FsDatastore{Dir: "./data"}
-	if err := ds.Open(); err != nil {
-		log.Println(err)
+	var dataDir, apiAddr, udpAddr, tcpAddr string
+	var nosync bool
+
+	flag.StringVar(&dataDir, "data", "", "     Data directory")
+	flag.StringVar(&apiAddr, "api", ":5999", " HTTP query API address")
+	flag.StringVar(&udpAddr, "udp", ":6000", " UDP input address")
+	flag.StringVar(&tcpAddr, "tcp", ":6000", " TCP input address")
+	flag.BoolVar(&nosync, "nosync", false, "Don't call sync() after every disk write")
+	flag.Parse()
+
+	if len(dataDir) == 0 {
+		os.Stderr.Write([]byte("No data directory specified\n"))
 		return
 	}
+
+	ds := &FsDatastore{Dir: dataDir, NoSync: nosync}
+	if err := ds.Open(); err != nil {
+		log.Println("FsDatastore.Open:", err)
+		return
+	}
+	defer func() {
+		ds.Close()
+		log.Println("Datastore closed")
+	}()
+	log.Println("Datastore opened")
 
 	srv := &Server{Ds: ds}
-	if err := srv.Start(); err != nil {
-		log.Println(err)
-		return
-	}
+	srv.Start()
 
-	inj := UDPInjector{Addr: ":6000", Server: srv}
-	if err := inj.Start(); err != nil {
-		log.Println(err)
-		return
-	}
-
-	/*
-		go func () {
-			time.Sleep(1*time.Minute)
-			start := time.Now()
-			inj.Stop()
-			srv.Stop()
-			ds.Close()
-			finish := time.Now()
-			log.Println("Stopped in", finish.Sub(start).Seconds(), "seconds.")
-		}()
-	*/
-
-	go func() {
-		httpSrv := http.Server{
-			Addr:    ":6000",
-			Handler: srv,
+	var api *HttpApi
+	if len(apiAddr) > 0 {
+		api = &HttpApi{Addr: apiAddr, Server: srv}
+		if err := api.Start(); err != nil {
+			log.Println("HttpApi.Start:", err)
 		}
-		httpSrv.ListenAndServe()
-	}()
-
-	<-make(chan int)
-}
-
-func (srv *Server) ServeHTTP(rw http.ResponseWriter, rq *http.Request) {
-	path := rq.URL.Path
-	if len(path) == 0 || path[0] != '/' {
-		return
+		log.Println("Query API listening on TCP address", api.Addr)
 	}
 
-	if len(path) >= 8 && path[0:8] == "/static/" {
-		http.ServeFile(rw, rq, "./static/"+path[8:])
-	} else if len(path) >= 6 && path[0:6] == "/live:" {
-		x := strings.Split(path[6:], ":")
-		if rq.Header.Get("Upgrade") == "websocket" {
-			w, err := srv.LiveWatch(x[0], x[1:])
-			if err != nil {
-				ohCrap(rw, err)
-				return
-			}
-			websocket.Handler(func(conn *websocket.Conn) {
-				fmt.Fprint(conn, w.Ts)
-				for v := range w.C {
-					if err := printSlice(conn, v); err != nil {
-						w.Close()
-					}
-				}
-			}).ServeHTTP(rw, rq)
-		} else {
-			data, ts, err := srv.LiveLog(x[0], x[1:])
-			if err != nil {
-				ohCrap(rw, err)
-				return
-			}
-			fmt.Fprint(rw, "[", ts, ",")
-			for i, row := range data {
-				if i != 0 {
-					fmt.Fprint(rw, ",")
-				}
-				printSlice(rw, row)
-			}
-			fmt.Fprint(rw, "]")
+	var ui *UDPInjector
+	if len(udpAddr) > 0 {
+		ui = &UDPInjector{Addr: udpAddr, Server: srv}
+		if err := ui.Start(); err != nil {
+			log.Println("UDPInjector.Start:", err)
+			return
 		}
-	} else {
-		x := strings.Split(path[1:], ":")
-		if rq.Header.Get("Upgrade") == "websocket" {
-			offs, err := param(rw, rq, "offs")
-			if err != nil {
-				return
-			}
-			gran, err := param(rw, rq, "gran")
-			if err != nil {
-				return
-			}
-			w, err := srv.Watch(x[0], x[1:], offs, gran)
-			if err != nil {
-				ohCrap(rw, err)
-				return
-			}
-			websocket.Handler(func(conn *websocket.Conn) {
-				fmt.Fprint(conn, w.Ts)
-				for v := range w.C {
-					if err := printSlice(conn, v); err != nil {
-						w.Close()
-					}
-				}
-			}).ServeHTTP(rw, rq)
-		} else {
-			from, err := param(rw, rq, "from")
-			if err != nil {
-				return
-			}
-			length, err := param(rw, rq, "length")
-			if err != nil {
-				return
-			}
-			gran, err := param(rw, rq, "gran")
-			if err != nil {
-				return
-			}
+		log.Println("Listening on UDP address", ui.Addr)
+	}
 
-			data, err := srv.Log(x[0], x[1:], from, length, gran)
-			if err != nil {
-				ohCrap(rw, err)
-				return
-			}
-			fmt.Fprint(rw, "[", from, ",")
-			for i, row := range data {
-				if i != 0 {
-					fmt.Fprint(rw, ",")
-				}
-				printSlice(rw, row)
-			}
-			fmt.Fprint(rw, "]")
+	var ti *TCPInjector
+	if len(tcpAddr) > 0 {
+		ti = &TCPInjector{Addr: tcpAddr, Server: srv}
+		if err := ti.Start(); err != nil {
+			log.Println("TCPInjector.Start:", err)
+			return
 		}
+		log.Println("Listening on TCP address", ti.Addr)
 	}
-}
 
-func ohCrap(rw http.ResponseWriter, err error) {
-	rw.WriteHeader(http.StatusBadRequest)
-	rw.Write([]byte(err.Error()))
-}
+	C := make(chan os.Signal)
+	signal.Notify(C, os.Interrupt)
+	<-C
 
-func param(rw http.ResponseWriter, rq *http.Request, name string) (int64, error) {
-	val, err := strconv.ParseInt(rq.URL.Query().Get(name), 10, 64)
-	if err != nil {
-		ohCrap(rw, err)
+	log.Println("Received SIGTERM, stopping...")
+
+	if ui != nil {
+		ui.Stop()
+		log.Println("UDP injector stopped")
 	}
-	return val, err
-}
 
-func printSlice(w io.Writer, data []float64) error {
-	r := "["
-	for j, val := range data {
-		if j != 0 {
-			r += ","
-		}
-		r += strconv.FormatFloat(val, 'e', -1, 64)
+	if ti != nil {
+		ti.Stop()
+		log.Println("TCP injector stopped")
 	}
-	r += "]"
-	_, err := fmt.Fprint(w, r)
-	return err
+
+	srv.Stop()
+	log.Println("Server stopped")
+
+	if api != nil {
+		api.Stop()
+		log.Println("Query API stopped")
+	}
 }
