@@ -15,15 +15,16 @@ const (
 )
 
 type FsDatastore struct {
-	Dir     string
-	NoSync  bool
-	mu      sync.Mutex
-	cond    sync.Cond
-	streams map[string]*fsDsStream
-	queue   []*fsDsStream
-	running bool
-	N       uint64
-	wg      sync.WaitGroup
+	Dir      string
+	NoSync   bool
+	mu       sync.Mutex
+	cond     sync.Cond
+	streams  map[string]*fsDsStream
+	queue    []*fsDsStream
+	running  bool
+	stopping bool
+	quit     chan int
+	wg       sync.WaitGroup
 }
 
 type fsDsStream struct {
@@ -58,6 +59,9 @@ func (ds *FsDatastore) Open() error {
 	if ds.running {
 		return Error("Datastore already running")
 	}
+	if ds.stopping {
+		return Error("Datastore is stopping")
+	}
 
 	if fi, err := os.Stat(ds.Dir); err != nil {
 		return err
@@ -73,19 +77,27 @@ func (ds *FsDatastore) Open() error {
 		return err
 	}
 	ds.running = true
-	go ds.write(ds.N)
+	ds.quit = make(chan int, 1)
+	go ds.write()
 	return nil
 }
 
 func (ds *FsDatastore) Close() error {
 	ds.mu.Lock()
+	defer ds.mu.Unlock()
 	if !ds.running {
-		ds.mu.Unlock()
 		return Error("Datastore not running")
 	}
+	if ds.stopping {
+		return Error("Datastore is stopping")
+	}
 
-	ds.N++
+	ds.stopping = true
 	ds.cond.Broadcast()
+	ds.mu.Unlock()
+	<-ds.quit
+	ds.mu.Lock()
+
 	for _, st := range ds.streams {
 		st.Lock()
 		st.Unlock()
@@ -101,7 +113,6 @@ func (ds *FsDatastore) Close() error {
 	ds.running = false
 	ds.streams = nil
 	ds.queue = nil
-	ds.mu.Unlock()
 	return nil
 }
 
@@ -293,13 +304,14 @@ func (ds *FsDatastore) createStream(name string, tail []fsDsRecord) {
 	}
 }
 
-func (ds *FsDatastore) write(N uint64) {
+func (ds *FsDatastore) write() {
 	for n := -1; ; {
 		ds.mu.Lock()
-		if len(ds.queue) == 0 && ds.N == N {
+		if len(ds.queue) == 0 && !ds.stopping {
 			ds.cond.Wait()
 		}
-		if ds.N != N {
+		if ds.stopping {
+			ds.quit <- 1
 			ds.mu.Unlock()
 			return
 		}
