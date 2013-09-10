@@ -408,11 +408,11 @@ func (ds *FsDatastore) loadTails() error {
 			return err
 		}
 		name := make([]byte, lname)
-		if err = binary.Read(rd, le, &name); err != nil {
+		if err = binary.Read(rd, le, name); err != nil {
 			return err
 		}
 		tail := make([]fsDsRecord, ltail)
-		if err = binary.Read(rd, le, &tail); err != nil {
+		if err = binary.Read(rd, le, tail); err != nil {
 			return err
 		}
 		strName := string(name)
@@ -634,8 +634,8 @@ func (s *fsDsSnapshot) readIdxEntry(n int64) (ts int64, pos int64, err error) {
 	if _, err := s.idx.Seek(n*fsDsISize, os.SEEK_SET); err != nil {
 		return 0, 0, err
 	}
-	d := [2]int64{}
-	if err := binary.Read(s.idx, binary.LittleEndian, d[:]); err != nil {
+	d := []int64{0, 0}
+	if err := binary.Read(s.idx, binary.LittleEndian, d); err != nil {
 		return 0, 0, err
 	}
 	if d[0]%60 != 0 || d[1]%fsDsDSize != 0 {
