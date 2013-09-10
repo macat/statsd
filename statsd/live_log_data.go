@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
-	"os"
 	"log"
+	"os"
 )
 
 type LiveLogData struct {
