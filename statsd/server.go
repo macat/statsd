@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-// TODO: save and restore the live log
-
 type Metric struct {
 	Name       string
 	Type       MetricType
@@ -30,8 +28,9 @@ type Server struct {
 	wg       sync.WaitGroup
 	metrics  [NMetricTypes]map[string]*metricEntry
 	running  bool
+	stopping bool
+	quit     chan int
 	lastTick int64
-	N        uint64
 }
 
 type metricEntry struct {
@@ -60,30 +59,45 @@ type Watcher struct {
 	offs int64
 }
 
-func (srv *Server) Start() error {
+func (srv *Server) Start(lld *LiveLogData) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	if srv.running {
 		return Error("Server already running")
 	}
+	if srv.stopping {
+		return Error("Server is stopping")
+	}
 
 	for i := range srv.metrics {
 		srv.metrics[i] = make(map[string]*metricEntry)
 	}
-	srv.running = true
 	srv.lastTick = time.Now().Unix()
-	go srv.tick(srv.N)
+	if lld != nil {
+		lld.restore(srv)
+	}
+	srv.running = true
+	srv.quit = make(chan int, 1)
+	go srv.tick()
 	return nil
 }
 
-func (srv *Server) Stop() error {
+func (srv *Server) Stop() (*LiveLogData, error) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	if !srv.running {
-		return Error("Server not running")
+		return nil, Error("Server not running")
+	}
+	if srv.stopping {
+		return nil, Error("Server is stopping")
 	}
 
-	for i, metrics := range srv.metrics {
+	srv.stopping = true
+	srv.mu.Unlock()
+	<-srv.quit
+	srv.mu.Lock()
+
+	for _, metrics := range srv.metrics {
 		for _, me := range metrics {
 			me.Lock()
 			for _, w := range me.watchers {
@@ -91,11 +105,14 @@ func (srv *Server) Stop() error {
 			}
 			me.Unlock()
 		}
+	}
+	lld := saveLiveLogData(srv)
+	for i := range srv.metrics {
 		srv.metrics[i] = nil
 	}
 	srv.running = false
-	srv.N++
-	return nil
+	srv.stopping = false
+	return lld, nil
 }
 
 func (srv *Server) InjectBytes(msg []byte) {
@@ -117,7 +134,7 @@ func (srv *Server) InjectBytes(msg []byte) {
 }
 
 func (srv *Server) Inject(metric *Metric) error {
-	if metric.Type < 0 || metric.Type >= NMetricTypes {
+	if metric.Type >= NMetricTypes {
 		return Error("Metric type invalid")
 	}
 	if metric.SampleRate <= 0 {
@@ -151,35 +168,39 @@ func (srv *Server) getMetricEntry(typ MetricType, name string) (*metricEntry, er
 
 	me := srv.metrics[typ][name]
 	if me == nil {
-		chs := metricTypes[typ].channels
-
-		me = &metricEntry{
-			metric:   metricTypes[typ].create(),
-			typ:      typ,
-			name:     name,
-			liveLog:  make([]*[LiveLogSize]float64, len(chs)),
-			lastTick: srv.lastTick,
-		}
-
-		initData := make([]float64, len(chs))
-		for i := range chs {
-			def := srv.getChannelDefault(typ, name, i, srv.lastTick)
-			initData[i] = def
-			live := new([LiveLogSize]float64)
-			for i := range live {
-				live[i] = def
-			}
-			me.liveLog[i] = live
-		}
-
-		me.init(initData)
-
+		me = srv.createMetricEntry(typ, name)
 		srv.metrics[typ][name] = me
 	}
 
 	me.Lock()
 	srv.mu.Unlock()
 	return me, nil
+}
+
+func (srv *Server) createMetricEntry(typ MetricType, name string) *metricEntry {
+	chs := metricTypes[typ].channels
+
+	me := &metricEntry{
+		metric:   metricTypes[typ].create(),
+		typ:      typ,
+		name:     name,
+		liveLog:  make([]*[LiveLogSize]float64, len(chs)),
+		lastTick: srv.lastTick,
+	}
+
+	initData := make([]float64, len(chs))
+	for i := range chs {
+		def := srv.getChannelDefault(typ, name, i, srv.lastTick)
+		initData[i] = def
+		live := new([LiveLogSize]float64)
+		for i := range live {
+			live[i] = def
+		}
+		me.liveLog[i] = live
+	}
+	me.init(initData)
+
+	return me
 }
 
 func (srv *Server) getChannelDefault(typ MetricType, name string, i int, ts int64) float64 {
@@ -196,24 +217,25 @@ func (srv *Server) getChannelDefault(typ MetricType, name string, i int, ts int6
 	return def
 }
 
-func (srv *Server) tick(N uint64) {
+func (srv *Server) tick() {
 	ticker := time.NewTicker(time.Second)
 	for {
 		select {
 		case t := <-ticker.C:
 			ts := t.Unix()
 			srv.mu.Lock()
-			if srv.N != N {
-				ticker.Stop()
-				srv.mu.Unlock()
-				return
-			}
 			for srv.lastTick < ts {
 				srv.lastTick++
 				if srv.lastTick%60 != 0 {
 					srv.tickMetrics()
 				} else {
 					srv.flushMetrics()
+					if srv.stopping {
+						ticker.Stop()
+						srv.quit <- 1
+						srv.mu.Unlock()
+						return
+					}
 				}
 			}
 			srv.mu.Unlock()

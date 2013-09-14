@@ -1,6 +1,6 @@
 package main
 
-type MetricType int
+type MetricType int64
 
 const (
 	Counter = MetricType(iota)

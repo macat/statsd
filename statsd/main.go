@@ -1,10 +1,10 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"os"
 	"os/signal"
-	"flag"
 )
 
 func main() {
@@ -23,6 +23,11 @@ func main() {
 		return
 	}
 
+	log.Println("StatsD starting...")
+
+	sigint := make(chan os.Signal, 1)
+	signal.Notify(sigint, os.Interrupt)
+
 	ds := &FsDatastore{Dir: dataDir, NoSync: nosync}
 	if err := ds.Open(); err != nil {
 		log.Println("FsDatastore.Open:", err)
@@ -34,8 +39,19 @@ func main() {
 	}()
 	log.Println("Datastore opened")
 
+	lld := new(LiveLogData)
+	lldfn := dataDir + string(os.PathSeparator) + "live_log"
+	if err := lld.ReadFrom(lldfn); err != nil {
+		log.Println("Failed to load the live log:", err)
+		lld = nil
+	} else {
+		log.Println("Live log loaded")
+	}
+
 	srv := &Server{Ds: ds}
-	srv.Start()
+	log.Println("Server started")
+	srv.Start(lld)
+	lld = nil
 
 	var api *HttpApi
 	if len(apiAddr) > 0 {
@@ -66,11 +82,11 @@ func main() {
 		log.Println("Listening on TCP address", ti.Addr)
 	}
 
-	C := make(chan os.Signal)
-	signal.Notify(C, os.Interrupt)
-	<-C
-
+	<-sigint
 	log.Println("Received SIGTERM, stopping...")
+
+	lld, _ = srv.Stop()
+	log.Println("Server stopped")
 
 	if ui != nil {
 		ui.Stop()
@@ -82,8 +98,14 @@ func main() {
 		log.Println("TCP injector stopped")
 	}
 
-	srv.Stop()
-	log.Println("Server stopped")
+	if err := lld.WriteTo(lldfn); err == nil {
+		log.Println("Live log saved")
+	} else {
+		log.Println("Failed to save the live log:", err)
+		if err := os.Remove(lldfn); err != nil {
+			log.Println(err)
+		}
+	}
 
 	if api != nil {
 		api.Stop()

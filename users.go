@@ -32,7 +32,7 @@ func listUsers(t *Task) {
 	gid := t.Rq.URL.Query().Get("group")
 	if len(gid) > 0 {
 		if !groupExists(t.Tx, gid) {
-			t.SendJsonObject("users",[]int{})
+			t.SendJsonObject("users", []int{})
 			return
 		}
 		params = append(params, gid)
