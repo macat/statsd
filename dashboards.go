@@ -175,24 +175,30 @@ func getDashboard(t *Task) {
 func sendDashboard(t *Task, uuid string) {
 	row := t.Tx.QueryRow(`
 		SELECT
-			"id",
-			"title",
-			"slug",
-			"category",
-			"position",
-			"created",
-			"creator"
+			d.id,
+			d.title,
+			d.slug,
+			d.category,
+			d.position,
+			d.created,
+			d.creator,
+			array_agg(w.id)
 		FROM
-			"dashboards"
+			dashboards d
+		LEFT JOIN
+			widgets w
+		ON
+			w.dashboard = d.id
 		WHERE
-			"id" = $1`,
-		uuid)
+			d.id = $1
+		GROUP BY d.id`, uuid)
 
 	var id, title, slug, category, creator string
 	var position int
 	var created time.Time
+	var widgets pgarray.StringSlice
 	err := row.Scan(&id, &title, &slug, &category, &position, &created,
-		&creator)
+		&creator, &widgets)
 	if err != nil {
 		panic(err)
 	}
@@ -205,6 +211,7 @@ func sendDashboard(t *Task, uuid string) {
 		"position": position,
 		"created":  created.Format("2006-01-02 15:04:05"),
 		"creator":  creator,
+		"widgets":  widgets,
 	}
 
 	t.SendJsonObject("dashboard", dashboard)
