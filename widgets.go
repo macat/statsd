@@ -55,10 +55,7 @@ func WidgetsByIds(tx *sql.Tx, ids []string) ([]*Widget, error) {
 		}
 	}
 
-	rows, err := tx.Query(`
-			SELECT * FROM widgets
-			WHERE id IN ($1)`,
-		strings.Join(ids, "','"))
+	rows, err := tx.Query("SELECT * FROM widgets WHERE id IN ('" + strings.Join(ids, "','") + "')")
 	if err != nil {
 		return nil, err
 	}
