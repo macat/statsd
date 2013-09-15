@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -23,27 +24,49 @@ type Widget struct {
 
 var ErrNoDashboard = errors.New("No such dashboard")
 
-func Widgets(tx *sql.Tx, dashboard string) ([]*Widget, error) {
-	var (
-		rows *sql.Rows
-		err  error
-	)
-	if dashboard != "" {
-		if !uuid.Valid(dashboard) {
-			return make([]*Widget, 0), nil
-		}
-		rows, err = tx.Query(`
-			SELECT * FROM widgets
-			WHERE dashboard = $1`,
-			dashboard)
-	} else {
-		rows, err = tx.Query(`SELECT * FROM widgets`)
-	}
+func WidgetsAll(tx *sql.Tx) ([]*Widget, error) {
+	rows, err := tx.Query(`SELECT * FROM widgets`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return Widgets(tx, rows)
+}
 
+func WidgetsByDashboard(tx *sql.Tx, dashboard string) ([]*Widget, error) {
+	if !uuid.Valid(dashboard) {
+		return make([]*Widget, 0), nil
+	}
+	rows, err := tx.Query(`
+			SELECT * FROM widgets
+			WHERE dashboard = $1`,
+		dashboard)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return Widgets(tx, rows)
+}
+
+func WidgetsByIds(tx *sql.Tx, ids []string) ([]*Widget, error) {
+	for _, id := range ids {
+		if !uuid.Valid(id) {
+			return make([]*Widget, 0), nil
+		}
+	}
+
+	rows, err := tx.Query(`
+			SELECT * FROM widgets
+			WHERE id IN ($1)`,
+		strings.Join(ids, "','"))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return Widgets(tx, rows)
+}
+
+func Widgets(tx *sql.Tx, rows *sql.Rows) ([]*Widget, error) {
 	result := make([]*Widget, 0)
 	for rows.Next() {
 		var (
@@ -176,8 +199,18 @@ func getWidgets(t *Task) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
+	var (
+		widgets []*Widget
+		err     error
+	)
 
-	widgets, err := Widgets(t.Tx, t.Rq.URL.Query().Get("dashboard"))
+	if dashboard := t.Rq.URL.Query().Get("dashboard"); dashboard != "" {
+		widgets, err = WidgetsByDashboard(t.Tx, dashboard)
+	} else if ids := t.Rq.URL.Query()["ids[]"]; len(ids) > 0 {
+		widgets, err = WidgetsByIds(t.Tx, ids)
+	} else {
+		widgets, err = WidgetsAll(t.Tx)
+	}
 	if err != nil {
 		panic(err)
 	}
