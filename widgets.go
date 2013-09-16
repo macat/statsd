@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -175,6 +176,16 @@ func (w *Widget) Delete() error {
 	return err
 }
 
+func (w *Widget) Serialize() map[string]interface{} {
+	return map[string]interface{}{
+		"id":       w.Id,
+		"type":     w.Type,
+		"dahboard": w.Dashboard,
+		"created":  w.Created.Format("2006-01-02 15:04:05"),
+		"config":   w.Config,
+	}
+}
+
 // Routing
 
 var WidgetRouter = &Transactional{PrefixRouter{
@@ -214,14 +225,9 @@ func getWidgets(t *Task) {
 
 	response := make([]interface{}, 0)
 	for _, w := range widgets {
-		response = append(response, map[string]interface{}{
-			"id":        w.Id,
-			"type":      w.Type,
-			"dashboard": w.Dashboard,
-			"created":   w.Created.Format("2006-01-02 15:04:05"),
-			"config":    w.Config,
-		})
+		response = append(response, w.Serialize())
 	}
+	log.Printf("%+v", response)
 	t.SendJsonObject("widgets", response)
 }
 
@@ -233,7 +239,6 @@ func postWidget(t *Task) {
 
 	var (
 		typ, dashboard string
-		config         interface{}
 		json           map[string]interface{}
 		ok             bool
 	)
@@ -258,7 +263,7 @@ func postWidget(t *Task) {
 		Tx:        t.Tx,
 		Type:      typ,
 		Dashboard: dashboard,
-		Config:    config,
+		Config:    json["config"],
 	}
 	err := w.Create()
 	if err == ErrNoDashboard {
@@ -268,7 +273,9 @@ func postWidget(t *Task) {
 		panic(err)
 	}
 
-	t.SendJsonObject("id", w.Id)
+	err = w.Load()
+
+	t.SendJsonObject("widget", w.Serialize())
 }
 
 func getWidget(t *Task) {
@@ -277,21 +284,15 @@ func getWidget(t *Task) {
 		return
 	}
 
-	widget := &Widget{Tx: t.Tx, Id: t.UUID}
-	if err := widget.Load(); err == sql.ErrNoRows {
+	w := &Widget{Tx: t.Tx, Id: t.UUID}
+	if err := w.Load(); err == sql.ErrNoRows {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
 	} else if err != nil {
 		panic(err)
 	}
 
-	t.SendJsonObject("widget", map[string]interface{}{
-		"id":       widget.Id,
-		"type":     widget.Type,
-		"dahboard": widget.Dashboard,
-		"created":  widget.Created.Format("2006-01-02 15:04:05"),
-		"config":   widget.Config,
-	})
+	t.SendJsonObject("widget", w.Serialize())
 }
 
 func deleteWidget(t *Task) {

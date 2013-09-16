@@ -1,14 +1,7 @@
 package main
 
 import (
-	"database/sql"
-	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
-	"log"
 	"net/http"
-	"net/http/httptest"
-	"os"
-	"strings"
 	"testing"
 )
 
@@ -23,39 +16,17 @@ func (t TestUserChangerHandler) Serve(task *Task) {
 	task.Uid = "4b261947-6ae7-4f9c-9a5b-331a25336cc2"
 }
 
-func dbTest(sid string, test func(*Task)) {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-
-	dbDriver := os.Getenv("DB_DRIVER")
-	dbSetup := []string{
-		"user=" + os.Getenv("DB_USER"),
-		"dbname=" + os.Getenv("DB_NAME_TEST"),
-		"sslmode=" + os.Getenv("DB_SSLMODE")}
-	dsName := strings.Join(dbSetup, " ")
-
-	if d, err := sql.Open(dbDriver, dsName); err != nil {
-		log.Fatalln(err)
-	} else {
-		db = d
-	}
-
-	if err := db.Ping(); err != nil {
-		log.Fatalln(err)
-	}
-
+func sessionTestwrap(sid string, test func(*Task)) {
 	rq := http.Request{Header: http.Header{"Cookie": {"sid=" + sid}}}
-	rw := httptest.NewRecorder()
-	test(&Task{Rq: &rq, Rw: rw})
+	dbTest(&rq, test)
 	if _, err := db.Exec(`DELETE FROM sessions`); err != nil {
 		panic(err)
 	}
+
 }
 
 func TestServe_new_session(t *testing.T) {
-	dbTest("super", func(task *Task) {
+	sessionTestwrap("super", func(task *Task) {
 		s := NewSession(TestHandler(map[string]Handler{}))
 		s.Serve(task)
 
@@ -68,7 +39,7 @@ func TestServe_new_session(t *testing.T) {
 }
 
 func TestServe_login(t *testing.T) {
-	dbTest("super", func(task *Task) {
+	sessionTestwrap("super", func(task *Task) {
 		s := NewSession(TestUserChangerHandler(map[string]Handler{}))
 		s.Serve(task)
 
@@ -95,7 +66,7 @@ func TestServe_login(t *testing.T) {
 }
 
 func TestServe_existing_session(t *testing.T) {
-	dbTest("super-sid", func(task *Task) {
+	sessionTestwrap("super-sid", func(task *Task) {
 		uid := "88d181e2-de04-46f2-9901-925db3cea38a"
 
 		_, err := db.Exec(`
@@ -123,7 +94,7 @@ func TestServe_existing_session(t *testing.T) {
 }
 
 func TestServe_empty(t *testing.T) {
-	dbTest("", func(task *Task) {
+	sessionTestwrap("", func(task *Task) {
 		uid := "88d181e2-de04-46f2-9901-925db3cea38a"
 
 		_, err := db.Exec(`
