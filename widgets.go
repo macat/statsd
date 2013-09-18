@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -23,27 +25,46 @@ type Widget struct {
 
 var ErrNoDashboard = errors.New("No such dashboard")
 
-func Widgets(tx *sql.Tx, dashboard string) ([]*Widget, error) {
-	var (
-		rows *sql.Rows
-		err  error
-	)
-	if dashboard != "" {
-		if !uuid.Valid(dashboard) {
-			return make([]*Widget, 0), nil
-		}
-		rows, err = tx.Query(`
-			SELECT * FROM widgets
-			WHERE dashboard = $1`,
-			dashboard)
-	} else {
-		rows, err = tx.Query(`SELECT * FROM widgets`)
-	}
+func WidgetsAll(tx *sql.Tx) ([]*Widget, error) {
+	rows, err := tx.Query(`SELECT * FROM widgets`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return Widgets(tx, rows)
+}
 
+func WidgetsByDashboard(tx *sql.Tx, dashboard string) ([]*Widget, error) {
+	if !uuid.Valid(dashboard) {
+		return make([]*Widget, 0), nil
+	}
+	rows, err := tx.Query(`
+			SELECT * FROM widgets
+			WHERE dashboard = $1`,
+		dashboard)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return Widgets(tx, rows)
+}
+
+func WidgetsByIds(tx *sql.Tx, ids []string) ([]*Widget, error) {
+	for _, id := range ids {
+		if !uuid.Valid(id) {
+			return make([]*Widget, 0), nil
+		}
+	}
+
+	rows, err := tx.Query("SELECT * FROM widgets WHERE id IN ('" + strings.Join(ids, "','") + "')")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return Widgets(tx, rows)
+}
+
+func Widgets(tx *sql.Tx, rows *sql.Rows) ([]*Widget, error) {
 	result := make([]*Widget, 0)
 	for rows.Next() {
 		var (
@@ -155,6 +176,16 @@ func (w *Widget) Delete() error {
 	return err
 }
 
+func (w *Widget) Serialize() map[string]interface{} {
+	return map[string]interface{}{
+		"id":       w.Id,
+		"type":     w.Type,
+		"dahboard": w.Dashboard,
+		"created":  w.Created.Format("2006-01-02 15:04:05"),
+		"config":   w.Config,
+	}
+}
+
 // Routing
 
 var WidgetRouter = &Transactional{PrefixRouter{
@@ -176,22 +207,27 @@ func getWidgets(t *Task) {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
 	}
+	var (
+		widgets []*Widget
+		err     error
+	)
 
-	widgets, err := Widgets(t.Tx, t.Rq.URL.Query().Get("dashboard"))
+	if dashboard := t.Rq.URL.Query().Get("dashboard"); dashboard != "" {
+		widgets, err = WidgetsByDashboard(t.Tx, dashboard)
+	} else if ids := t.Rq.URL.Query()["ids[]"]; len(ids) > 0 {
+		widgets, err = WidgetsByIds(t.Tx, ids)
+	} else {
+		widgets, err = WidgetsAll(t.Tx)
+	}
 	if err != nil {
 		panic(err)
 	}
 
 	response := make([]interface{}, 0)
 	for _, w := range widgets {
-		response = append(response, map[string]interface{}{
-			"id":        w.Id,
-			"type":      w.Type,
-			"dashboard": w.Dashboard,
-			"created":   w.Created.Format("2006-01-02 15:04:05"),
-			"config":    w.Config,
-		})
+		response = append(response, w.Serialize())
 	}
+	log.Printf("%+v", response)
 	t.SendJsonObject("widgets", response)
 }
 
@@ -203,7 +239,6 @@ func postWidget(t *Task) {
 
 	var (
 		typ, dashboard string
-		config         interface{}
 		json           map[string]interface{}
 		ok             bool
 	)
@@ -228,7 +263,7 @@ func postWidget(t *Task) {
 		Tx:        t.Tx,
 		Type:      typ,
 		Dashboard: dashboard,
-		Config:    config,
+		Config:    json["config"],
 	}
 	err := w.Create()
 	if err == ErrNoDashboard {
@@ -238,7 +273,9 @@ func postWidget(t *Task) {
 		panic(err)
 	}
 
-	t.SendJsonObject("id", w.Id)
+	err = w.Load()
+
+	t.SendJsonObject("widget", w.Serialize())
 }
 
 func getWidget(t *Task) {
@@ -247,21 +284,15 @@ func getWidget(t *Task) {
 		return
 	}
 
-	widget := &Widget{Tx: t.Tx, Id: t.UUID}
-	if err := widget.Load(); err == sql.ErrNoRows {
+	w := &Widget{Tx: t.Tx, Id: t.UUID}
+	if err := w.Load(); err == sql.ErrNoRows {
 		t.Rw.WriteHeader(http.StatusNotFound)
 		return
 	} else if err != nil {
 		panic(err)
 	}
 
-	t.SendJsonObject("widget", map[string]interface{}{
-		"id":       widget.Id,
-		"type":     widget.Type,
-		"dahboard": widget.Dashboard,
-		"created":  widget.Created.Format("2006-01-02 15:04:05"),
-		"config":   widget.Config,
-	})
+	t.SendJsonObject("widget", w.Serialize())
 }
 
 func deleteWidget(t *Task) {
