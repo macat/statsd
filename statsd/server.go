@@ -134,7 +134,7 @@ func (srv *Server) InjectBytes(msg []byte) {
 }
 
 func (srv *Server) Inject(metric *Metric) error {
-	if metric.Type >= NMetricTypes {
+	if metric.Type >= NMetricTypes || metric.Type < 0 {
 		return Error("Metric type invalid")
 	}
 	if metric.SampleRate <= 0 {
