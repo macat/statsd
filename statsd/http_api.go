@@ -188,6 +188,7 @@ type byteStringWriter interface {
 
 func (ha *HttpApi) serveData(ts int64, data [][]float64, n int64, rw http.ResponseWriter) {
 	buf := bufio.NewWriter(rw)
+	buf.WriteString("time,value\n")
 	for _, values := range data {
 		ha.writeRecord(ts, values, buf)
 		buf.WriteByte('\n')
