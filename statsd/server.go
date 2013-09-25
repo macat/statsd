@@ -341,7 +341,7 @@ func (srv *Server) flushMetric(me *metricEntry) {
 			wdata[i] = data[j]
 		}
 		w.aggr.put(wdata)
-		if (me.lastTick-w.offs)%int64(60*w.gran) == 0 {
+		if (me.lastTick-w.offs)%w.gran == 0 {
 			w.in <- w.aggr.get()
 		}
 	}
@@ -393,10 +393,12 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 	if gran < 1 {
 		return nil, Error("Granularity must be positive")
 	}
+	if gran%60 != 0 {
+		return nil, Error("Granularity must be divisable by 60")
+	}
 	if length < 0 {
 		return nil, Error("Length must not be negative")
 	}
-	gran60 := 60 * gran
 
 	typ, err := metricTypeByChannels(chs)
 	if err != nil {
@@ -408,7 +410,7 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 		return nil, err
 	}
 
-	maxLength := (me.lastTick - from) / gran60
+	maxLength := (me.lastTick - from) / gran
 
 	if length > maxLength {
 		length = maxLength
@@ -420,7 +422,7 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 	}
 
 	aggr := metricTypes[typ].aggregator(chs)
-	input, err := srv.initAggregator(aggr, name, typ, from, from+gran60*length)
+	input, err := srv.initAggregator(aggr, name, typ, from, from+gran*length)
 	if err != nil {
 		me.Unlock()
 		return nil, err
@@ -429,7 +431,7 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 	output := make([][]float64, length)
 	for i, ts := int64(0), from; i < length; i++ {
 		feedAggregator(aggr, input, ts, gran)
-		ts += gran60
+		ts += gran
 		output[i] = aggr.get()
 	}
 
@@ -455,7 +457,7 @@ func (srv *Server) initAggregator(aggr aggregator, name string, typ MetricType, 
 
 func feedAggregator(aggr aggregator, in [][]Record, ts, gran int64) {
 	tmp := make([]float64, len(in))
-	for j := int64(0); j < gran; j++ {
+	for j := int64(0); j < gran; j += 60 {
 		ts += 60
 		missing := false
 		for k := range tmp {
@@ -511,7 +513,9 @@ func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	if gran < 1 {
 		return nil, Error("Granularity must be positive")
 	}
-	gran60 := int64(60 * gran)
+	if gran%60 != 0 {
+		return nil, Error("Granularity must be divisable by 60")
+	}
 
 	typ, err := metricTypeByChannels(chs)
 	if err != nil {
@@ -533,9 +537,9 @@ func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 		return nil, err
 	}
 	w.me = me
-	w.Ts = me.lastTick - ((me.lastTick-offs)%gran60+gran60)%gran60
+	w.Ts = me.lastTick - ((me.lastTick-offs)%gran+gran)%gran
 
-	input, err := srv.initAggregator(w.aggr, name, typ, w.Ts, w.Ts+gran60)
+	input, err := srv.initAggregator(w.aggr, name, typ, w.Ts, w.Ts+gran)
 	if err != nil {
 		me.Unlock()
 		return nil, err
