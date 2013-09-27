@@ -123,7 +123,7 @@ func (ha *HttpApi) serveArchiveWatch(rw http.ResponseWriter, rq *http.Request) {
 		ha.sendError(err, rw)
 		return
 	}
-	ha.serveWs(watcher, 60*og[1], rw, rq)
+	ha.serveWs(watcher, og[1], rw, rq)
 }
 
 func (ha *HttpApi) serveArchiveLog(rw http.ResponseWriter, rq *http.Request) {
@@ -137,7 +137,7 @@ func (ha *HttpApi) serveArchiveLog(rw http.ResponseWriter, rq *http.Request) {
 	if err != nil {
 		ha.sendError(err, rw)
 	}
-	ha.serveData(flg[0], data, 60*flg[2], rw)
+	ha.serveData(flg[0], data, flg[2], rw)
 }
 
 func (ha *HttpApi) sendError(err error, rw http.ResponseWriter) {
