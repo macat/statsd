@@ -85,6 +85,7 @@ func (ds *FsDatastore) Open() error {
 func (ds *FsDatastore) Close() error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
+
 	if !ds.running {
 		return Error("Datastore not running")
 	}
@@ -99,6 +100,7 @@ func (ds *FsDatastore) Close() error {
 	ds.mu.Lock()
 
 	for _, st := range ds.streams {
+		// Make sure no fsDsStreams are in use when we return
 		st.Lock()
 		st.Unlock()
 	}
@@ -118,11 +120,12 @@ func (ds *FsDatastore) Close() error {
 
 func (ds *FsDatastore) Insert(name string, r Record) error {
 	st := ds.getStream(name)
+	defer st.Unlock()
+
 	if st == nil {
 		return Error("Datastore not running")
 	}
 	st.tail = append(st.tail, fsDsRecord{Ts: r.Ts, Value: r.Value})
-	st.Unlock()
 	return nil
 }
 
@@ -264,8 +267,9 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 
 func (ds *FsDatastore) getStream(name string) *fsDsStream {
 	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
 	if !ds.running {
-		ds.mu.Unlock()
 		return nil
 	}
 	if _, ok := ds.streams[name]; !ok {
@@ -273,7 +277,6 @@ func (ds *FsDatastore) getStream(name string) *fsDsStream {
 	}
 	st := ds.streams[name]
 	st.Lock()
-	ds.mu.Unlock()
 	return st
 }
 
@@ -282,12 +285,12 @@ func (ds *FsDatastore) takeSnapshot(name string) (*fsDsSnapshot, error) {
 	if st == nil {
 		return nil, Error("Datastore not running")
 	}
+	defer st.Unlock()
+
 	s, err := st.takeSnapshot()
 	if err != nil {
-		st.Unlock()
 		return nil, err
 	}
-	st.Unlock()
 	return s, nil
 }
 

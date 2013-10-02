@@ -148,10 +148,11 @@ func (srv *Server) Inject(metric *Metric) error {
 	if err != nil {
 		return err
 	}
+	defer me.Unlock()
+
 	me.recvdInput = true
 	me.recvdInputTick = true
 	me.inject(metric)
-	me.Unlock()
 	return nil
 }
 
@@ -165,6 +166,7 @@ func (srv *Server) getMetricEntry(typ MetricType, name string) (*metricEntry, er
 		srv.mu.Unlock()
 		return nil, Error("Server not running")
 	}
+	defer srv.mu.Unlock()
 
 	me := srv.metrics[typ][name]
 	if me == nil {
@@ -173,7 +175,6 @@ func (srv *Server) getMetricEntry(typ MetricType, name string) (*metricEntry, er
 	}
 
 	me.Lock()
-	srv.mu.Unlock()
 	return me, nil
 }
 
@@ -217,30 +218,36 @@ func (srv *Server) getChannelDefault(typ MetricType, name string, i int, ts int6
 	return def
 }
 
-func (srv *Server) tick() {
+func (srv *Server) tick() { // TODO: recover
 	ticker := time.NewTicker(time.Second)
 	for {
 		select {
 		case t := <-ticker.C:
 			ts := t.Unix()
-			srv.mu.Lock()
-			for srv.lastTick < ts {
-				srv.lastTick++
-				if srv.lastTick%60 != 0 {
-					srv.tickMetrics()
-				} else {
-					srv.flushMetrics()
-					if srv.stopping {
-						ticker.Stop()
-						srv.quit <- 1
-						srv.mu.Unlock()
-						return
-					}
-				}
+			if srv.handleTick(ts) {
+				ticker.Stop()
+				srv.quit <- 1
 			}
-			srv.mu.Unlock()
 		}
 	}
+}
+
+func (srv *Server) handleTick(ts int64) bool {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	for srv.lastTick < ts {
+		srv.lastTick++
+		if srv.lastTick%60 != 0 {
+			srv.tickMetrics()
+		} else {
+			srv.flushMetrics()
+			if srv.stopping {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (srv *Server) tickMetrics() {
@@ -264,14 +271,16 @@ func (srv *Server) flushMetrics() {
 
 func (srv *Server) tickMetric(me *metricEntry) {
 	me.Lock()
+	defer me.Unlock()
+	defer srv.wg.Done()
+
 	me.updateIdle()
 	me.updateLiveLog(srv.lastTick)
-	me.Unlock()
-	srv.wg.Done()
 }
 
 func (srv *Server) flushOrDelete(me *metricEntry) {
 	me.Lock()
+	defer me.Unlock()
 
 	me.updateIdle()
 
@@ -281,8 +290,6 @@ func (srv *Server) flushOrDelete(me *metricEntry) {
 	} else if me.idleTicks > LiveLogSize {
 		delete(srv.metrics[me.typ], me.name)
 	}
-
-	me.Unlock()
 }
 
 func (me *metricEntry) updateIdle() {
@@ -316,6 +323,8 @@ func (me *metricEntry) updateLiveLog(ts int64) {
 
 func (srv *Server) flushMetric(me *metricEntry) {
 	me.Lock()
+	defer me.Unlock()
+	defer srv.wg.Done()
 
 	me.updateLiveLog(srv.lastTick)
 	data := me.flush()
@@ -346,8 +355,6 @@ func (srv *Server) flushMetric(me *metricEntry) {
 		}
 	}
 
-	me.Unlock()
-	srv.wg.Done()
 }
 
 func (srv *Server) LiveLog(name string, chs []string) ([][]float64, int64, error) {
@@ -360,6 +367,7 @@ func (srv *Server) LiveLog(name string, chs []string) ([][]float64, int64, error
 	if err != nil {
 		return nil, 0, err
 	}
+	defer me.Unlock()
 
 	logs, ptr := make([]*[LiveLogSize]float64, len(chs)), me.livePtr
 	for i, n := range chs {
@@ -382,7 +390,6 @@ func (srv *Server) LiveLog(name string, chs []string) ([][]float64, int64, error
 		result[i+LiveLogSize-ptr] = row
 	}
 
-	me.Unlock()
 	return result, ts, nil
 }
 
@@ -409,6 +416,7 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 	if err != nil {
 		return nil, err
 	}
+	defer me.Unlock()
 
 	maxLength := (me.lastTick - from) / gran
 
@@ -417,14 +425,12 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 	}
 
 	if length <= 0 {
-		me.Unlock()
 		return [][]float64{}, nil
 	}
 
 	aggr := metricTypes[typ].aggregator(chs)
 	input, err := srv.initAggregator(aggr, name, typ, from, from+gran*length)
 	if err != nil {
-		me.Unlock()
 		return nil, err
 	}
 
@@ -435,7 +441,6 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 		output[i] = aggr.get()
 	}
 
-	me.Unlock()
 	return output, nil
 }
 
@@ -497,12 +502,13 @@ func (srv *Server) LiveWatch(name string, chs []string) (*Watcher, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer me.Unlock()
+
 	w.me = me
 	w.Ts = me.lastTick
 	me.watchers = append(me.watchers, w)
 	go w.run()
 
-	me.Unlock()
 	return w, nil
 }
 
@@ -536,12 +542,13 @@ func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	if err != nil {
 		return nil, err
 	}
+	defer me.Unlock()
+
 	w.me = me
 	w.Ts = me.lastTick - ((me.lastTick-offs)%gran+gran)%gran
 
 	input, err := srv.initAggregator(w.aggr, name, typ, w.Ts, w.Ts+gran)
 	if err != nil {
-		me.Unlock()
 		return nil, err
 	}
 	feedAggregator(w.aggr, input, w.Ts, gran)
@@ -549,12 +556,13 @@ func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	me.watchers = append(me.watchers, w)
 	go w.run()
 
-	me.Unlock()
 	return w, nil
 }
 
 func (w *Watcher) Close() {
 	w.me.Lock()
+	defer w.me.Unlock()
+
 	for i, l := 0, len(w.me.watchers); i < l; i++ {
 		if w.me.watchers[i] == w {
 			w.me.watchers[i] = w.me.watchers[l-1]
@@ -567,7 +575,6 @@ func (w *Watcher) Close() {
 			break
 		}
 	}
-	w.me.Unlock()
 }
 
 func (w *Watcher) run() {
