@@ -52,20 +52,20 @@ func metricTypeByChannels(chs []string) (MetricType, error) {
 
 	typ, ok := outputChannels[chs[0]]
 	if !ok {
-		return -1, Error("No such channel")
+		return -1, Error("No such channel: " + chs[0])
 	}
 
 	names := map[string]bool{chs[0]: true}
 	for _, ch := range chs[1:] {
 		t, ok := outputChannels[ch]
 		if !ok {
-			return -1, Error("No such channel")
+			return -1, Error("No such channel: " + ch)
 		}
 		if t != typ {
 			return -1, Error("Cannot mix different metric types")
 		}
 		if names[ch] {
-			return -1, Error("Channel names must be unique")
+			return -1, Error("Channel names must be unique:" + ch)
 		}
 		names[ch] = true
 	}

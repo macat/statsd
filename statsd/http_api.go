@@ -141,7 +141,11 @@ func (ha *HttpApi) serveArchiveLog(rw http.ResponseWriter, rq *http.Request) {
 }
 
 func (ha *HttpApi) sendError(err error, rw http.ResponseWriter) {
-	rw.WriteHeader(http.StatusBadRequest)
+	if _, ok := err.(Error); ok {
+		rw.WriteHeader(http.StatusBadRequest)
+	} else {
+		rw.WriteHeader(http.StatusInternalServerError)
+	}
 	rw.Write([]byte(err.Error()))
 }
 
