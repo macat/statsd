@@ -143,10 +143,12 @@ func (ha *HttpApi) serveArchiveLog(rw http.ResponseWriter, rq *http.Request) {
 func (ha *HttpApi) sendError(err error, rw http.ResponseWriter) {
 	if _, ok := err.(Error); ok {
 		rw.WriteHeader(http.StatusBadRequest)
+		rw.Write([]byte(err.Error()))
 	} else {
+		log.Println(err)
 		rw.WriteHeader(http.StatusInternalServerError)
+		rw.Write([]byte("Internal Server Error"))
 	}
-	rw.Write([]byte(err.Error()))
 }
 
 func (ha *HttpApi) metricAndChannels(rq *http.Request) (string, []string) {
