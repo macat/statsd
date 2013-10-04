@@ -70,6 +70,14 @@ func (ha *HttpApi) serveHTTP(rw http.ResponseWriter, rq *http.Request) {
 	ha.wg.Add(1)
 	defer ha.wg.Done()
 
+	defer func() {
+		if err := recover(); err != nil {
+			log.Println("Panic:", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			rw.Write([]byte("Internal Server Error"))
+		}
+	}()
+
 	rw.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	rw.Header().Set("Pragma", "no-cache")
 	rw.Header().Set("Access-Control-Allow-Origin", "*")
