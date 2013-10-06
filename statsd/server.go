@@ -218,7 +218,7 @@ func (srv *Server) getChannelDefault(typ MetricType, name string, i int, ts int6
 	return def
 }
 
-func (srv *Server) tick() { // TODO: recover
+func (srv *Server) tick() {
 	ticker := time.NewTicker(time.Second)
 	for {
 		select {
@@ -578,6 +578,8 @@ func (w *Watcher) Close() {
 }
 
 func (w *Watcher) run() {
+	defer close(w.out)
+
 	var buff [][]float64
 	for w.in != nil || len(buff) > 0 {
 		out, data := chan []float64(nil), []float64(nil)
@@ -596,5 +598,4 @@ func (w *Watcher) run() {
 			}
 		}
 	}
-	close(w.out)
 }
