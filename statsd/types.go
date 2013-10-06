@@ -65,7 +65,7 @@ func metricTypeByChannels(chs []string) (MetricType, error) {
 			return -1, Error("Cannot mix different metric types")
 		}
 		if names[ch] {
-			return -1, Error("Channel names must be unique:" + ch)
+			return -1, Error("Channel names must be unique: " + ch)
 		}
 		names[ch] = true
 	}
