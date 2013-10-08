@@ -83,7 +83,7 @@ func (ha *HttpApi) serveHTTP(rw http.ResponseWriter, rq *http.Request) {
 	rw.Header().Set("Access-Control-Allow-Origin", "*")
 
 	typ := rq.URL.Query().Get("type")
-	watch := rq.Header.Get("Upgrade") == "websocket"
+	watch := rq.Header.Get("Upgrade") == string.ToLower("websocket")
 
 	switch {
 	case typ == "live" && watch:
