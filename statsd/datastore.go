@@ -11,6 +11,7 @@ type Datastore interface {
 	Insert(name string, r Record) error
 	Query(name string, form, until int64) ([]Record, error)
 	LatestBefore(name string, ts int64) (Record, error)
+	ListNames(pattern string) ([]string, error)
 }
 
 const ErrNoData = Error("No data")

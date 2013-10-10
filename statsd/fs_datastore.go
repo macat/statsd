@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -20,6 +22,7 @@ type FsDatastore struct {
 	mu       sync.Mutex
 	cond     sync.Cond
 	streams  map[string]*fsDsStream
+	names    map[string]int
 	queue    []*fsDsStream
 	running  bool
 	stopping bool
@@ -67,6 +70,10 @@ func (ds *FsDatastore) Open() error {
 		return err
 	} else if !fi.IsDir() {
 		return Error("Not a directory: " + ds.Dir)
+	}
+
+	if err := ds.loadNames(); err != nil {
+		return err
 	}
 
 	ds.streams = make(map[string]*fsDsStream)
@@ -265,6 +272,23 @@ func (ds *FsDatastore) LatestBefore(name string, ts int64) (Record, error) {
 	return Record{Ts: t + 60*((lastPos-pos)/fsDsDSize), Value: val}, nil
 }
 
+func (ds *FsDatastore) ListNames(pattern string) ([]string, error) {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	r := make([]string, 0)
+	for name, _ := range ds.names {
+		m, err := filepath.Match(pattern, name)
+		if err != nil {
+			return nil, err
+		}
+		if m {
+			r = append(r, name)
+		}
+	}
+	return r, nil
+}
+
 func (ds *FsDatastore) getStream(name string) *fsDsStream {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
@@ -305,6 +329,8 @@ func (ds *FsDatastore) createStream(name string, tail []fsDsRecord) {
 	if len(ds.queue) == 1 {
 		ds.cond.Broadcast()
 	}
+
+	ds.names[name] = 1
 }
 
 func (ds *FsDatastore) write() {
@@ -396,6 +422,28 @@ func (ds *FsDatastore) saveTails() error {
 	if err = f.Sync(); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (ds *FsDatastore) loadNames() error {
+	dir := strings.Replace(ds.Dir, "\\", "\\\\", -1)
+	dir = strings.Replace(ds.Dir, "*", "\\*", -1)
+	dir = strings.Replace(ds.Dir, "?", "\\?", -1)
+	dir = strings.Replace(ds.Dir, "[", "\\[", -1)
+
+	files, err := filepath.Glob(dir + string(os.PathSeparator) + "*:*.idx")
+	if err != nil {
+		return err
+	}
+
+	ds.names = make(map[string]int)
+
+	for _, fn := range files {
+		fn = filepath.Base(fn)
+		fn = fn[0 : len(fn)-4]
+		ds.names[fn] = 1
+	}
+
 	return nil
 }
 

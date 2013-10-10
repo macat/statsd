@@ -94,6 +94,8 @@ func (ha *HttpApi) serveHTTP(rw http.ResponseWriter, rq *http.Request) {
 		ha.serveArchiveWatch(rw, rq)
 	case typ == "archive" && !watch:
 		ha.serveArchiveLog(rw, rq)
+	case typ == "list":
+		ha.serveList(rw, rq)
 	default:
 		ha.sendError(Error("Invalid type"), rw)
 	}
@@ -146,6 +148,18 @@ func (ha *HttpApi) serveArchiveLog(rw http.ResponseWriter, rq *http.Request) {
 		ha.sendError(err, rw)
 	}
 	ha.serveData(flg[0], data, flg[2], rw)
+}
+
+func (ha *HttpApi) serveList(rw http.ResponseWriter, rq *http.Request) {
+	names, err := ha.Server.Ds.ListNames(rq.URL.Query().Get("pattern"))
+	if err != nil {
+		ha.sendError(err, rw)
+		return
+	}
+	for _, name := range names {
+		rw.Write([]byte(name))
+		rw.Write([]byte("\n"))
+	}
 }
 
 func (ha *HttpApi) sendError(err error, rw http.ResponseWriter) {
