@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type HttpApi struct {
@@ -96,6 +97,8 @@ func (ha *HttpApi) serveHTTP(rw http.ResponseWriter, rq *http.Request) {
 		ha.serveArchiveLog(rw, rq)
 	case typ == "list":
 		ha.serveList(rw, rq)
+	case typ == "clockSkew":
+		ha.serveClockSkew(rw, rq)
 	default:
 		ha.sendError(Error("Invalid type"), rw)
 	}
@@ -160,6 +163,15 @@ func (ha *HttpApi) serveList(rw http.ResponseWriter, rq *http.Request) {
 		rw.Write([]byte(name))
 		rw.Write([]byte("\n"))
 	}
+}
+
+func (ha *HttpApi) serveClockSkew(rw http.ResponseWriter, rq *http.Request) {
+	ts, err := strconv.ParseInt(rq.URL.Query().Get("ts"), 10, 64)
+	if err != nil {
+		ha.sendError(err, rw)
+		return
+	}
+	rw.Write([]byte(strconv.FormatInt(time.Now().Unix()*1000-ts, 10)))
 }
 
 func (ha *HttpApi) sendError(err error, rw http.ResponseWriter) {
