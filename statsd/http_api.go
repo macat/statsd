@@ -171,7 +171,7 @@ func (ha *HttpApi) serveClockSkew(rw http.ResponseWriter, rq *http.Request) {
 		ha.sendError(err, rw)
 		return
 	}
-	rw.Write([]byte(strconv.FormatInt(time.Now().Unix()*1000-ts, 10)))
+	rw.Write([]byte(strconv.FormatInt(time.Now().UnixNano()/1e6-ts, 10)))
 }
 
 func (ha *HttpApi) sendError(err error, rw http.ResponseWriter) {
