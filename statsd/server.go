@@ -219,6 +219,7 @@ func (srv *Server) getChannelDefault(typ MetricType, name string, i int, ts int6
 }
 
 func (srv *Server) tick() {
+	time.Sleep(time.Duration(1e9 - time.Now().Nanosecond()))
 	ticker := time.NewTicker(time.Second)
 	for {
 		select {
