@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"flag"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
@@ -48,9 +50,17 @@ func main() {
 		log.Println("Live log loaded")
 	}
 
+	wcsfn := dataDir + string(os.PathSeparator) + "wildcards"
+	wcs, err := loadWildcards(wcsfn)
+	if err == nil {
+		log.Println("Wildcards loaded")
+	} else {
+		log.Println("Failed to load wildcards:", err)
+	}
+
 	srv := &Server{Ds: ds, AutoWc: true}
 	log.Println("Server started")
-	srv.Start(lld)
+	srv.Start(lld, wcs)
 	lld = nil
 
 	var api *HttpApi
@@ -85,7 +95,7 @@ func main() {
 	<-sigint
 	log.Println("Received SIGTERM, stopping...")
 
-	lld, _ = srv.Stop()
+	lld, wcs, _ = srv.Stop()
 	log.Println("Server stopped")
 
 	if ui != nil {
@@ -107,8 +117,53 @@ func main() {
 		}
 	}
 
+	if err := saveWildcards(wcsfn, wcs); err == nil {
+		log.Println("Wildcards saved")
+	} else {
+		log.Println("Failed to save wildcards:", err)
+		if err := os.Remove(wcsfn); err != nil {
+			log.Println(err)
+		}
+	}
+
 	if api != nil {
 		api.Stop()
 		log.Println("Query API stopped")
 	}
+}
+
+func saveWildcards(fn string, wcs []string) error {
+	f, err := os.Create(fn)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	for _, name := range wcs {
+		if _, err := f.Write([]byte(name)); err != nil {
+			return err
+		}
+		if _, err := f.Write([]byte("\n")); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func loadWildcards(fn string) ([]string, error) {
+	buff, err := ioutil.ReadFile(fn)
+	if err != nil {
+		return nil, err
+	}
+
+	r := make([]string, 0)
+	for _, line := range bytes.Split(buff, []byte{'\n'}) {
+		if len(line) == 0 {
+			continue
+		}
+		r = append(r, string(line))
+	}
+
+	return r, nil
 }

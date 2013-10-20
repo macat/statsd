@@ -62,7 +62,7 @@ type Watcher struct {
 	offs int64
 }
 
-func (srv *Server) Start(lld *LiveLogData) error {
+func (srv *Server) Start(lld *LiveLogData, wildcards []string) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	if srv.running {
@@ -79,20 +79,23 @@ func (srv *Server) Start(lld *LiveLogData) error {
 	if lld != nil {
 		lld.restore(srv)
 	}
+	if wildcards != nil {
+		srv.restoreWildcards(wildcards)
+	}
 	srv.running = true
 	srv.quit = make(chan int, 1)
 	go srv.tick()
 	return nil
 }
 
-func (srv *Server) Stop() (*LiveLogData, error) {
+func (srv *Server) Stop() (*LiveLogData, []string, error) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 	if !srv.running {
-		return nil, Error("Server not running")
+		return nil, nil, Error("Server not running")
 	}
 	if srv.stopping {
-		return nil, Error("Server is stopping")
+		return nil, nil, Error("Server is stopping")
 	}
 
 	srv.stopping = true
@@ -110,11 +113,12 @@ func (srv *Server) Stop() (*LiveLogData, error) {
 		}
 	}
 	lld := saveLiveLogData(srv)
+	wcd := srv.getWildcards()
 	srv.metrics = [NMetricTypes]map[string]*metricEntry{}
 	srv.wildcards = [NMetricTypes]map[string]int{}
 	srv.running = false
 	srv.stopping = false
-	return lld, nil
+	return lld, wcd, nil
 }
 
 func (srv *Server) InjectBytes(msg []byte) {
@@ -231,6 +235,39 @@ func (srv *Server) addWildcard(typ MetricType, name string) error {
 	}
 }
 
+func (srv *Server) Wildcards() ([]string, error) {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	if !srv.running {
+		return nil, Error("Server not running")
+	}
+
+	return srv.getWildcards(), nil
+}
+
+func (srv *Server) restoreWildcards(wcs []string) {
+	for _, wc := range wcs {
+		s := strings.SplitN(wc, ":", 2)
+		typ, err := metricTypeByChannels(s[1:])
+		if err != nil {
+			log.Println("Bad wildcard:", err)
+			continue
+		}
+		srv.addWildcard(typ, s[0])
+	}
+}
+
+func (srv *Server) getWildcards() []string {
+	r := make([]string, 0)
+	for typ, wcs := range srv.wildcards {
+		for name, _ := range wcs {
+			r = append(r, name+":"+metricTypes[typ].channels[0])
+		}
+	}
+	return r
+}
+
 func (srv *Server) getMetricEntry(typ MetricType, name string, wc bool) (*metricEntry, error) {
 	if err := CheckMetricName(name); err != nil {
 		return nil, err
@@ -247,9 +284,10 @@ func (srv *Server) getMetricEntry(typ MetricType, name string, wc bool) (*metric
 	if me == nil {
 		me = srv.createMetricEntry(typ, name)
 		srv.metrics[typ][name] = me
-		if wc && srv.AutoWc {
-			srv.addWildcard(typ, name)
-		}
+	}
+
+	if wc && srv.AutoWc {
+		srv.addWildcard(typ, name)
 	}
 
 	me.Lock()
