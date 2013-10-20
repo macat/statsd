@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -24,6 +25,7 @@ const LiveLogSize = 600
 type Server struct {
 	Ds        Datastore
 	Prefix    string
+	AutoWc    bool
 	mu        sync.Mutex
 	wg        sync.WaitGroup
 	metrics   [NMetricTypes]map[string]*metricEntry
@@ -108,9 +110,8 @@ func (srv *Server) Stop() (*LiveLogData, error) {
 		}
 	}
 	lld := saveLiveLogData(srv)
-	for i := range srv.metrics {
-		srv.metrics[i] = nil
-	}
+	srv.metrics = [NMetricTypes]map[string]*metricEntry{}
+	srv.wildcards = [NMetricTypes]map[string]int{}
 	srv.running = false
 	srv.stopping = false
 	return lld, nil
@@ -145,7 +146,7 @@ func (srv *Server) InjectWithoutWildcards(metric *Metric) error {
 		return err
 	}
 
-	me, err := srv.getMetricEntry(metric.Type, metric.Name)
+	me, err := srv.getMetricEntry(metric.Type, metric.Name, false)
 	if err != nil {
 		return err
 	}
@@ -186,22 +187,69 @@ func (srv *Server) getMatchingWildcards(typ MetricType, name string) []string {
 	return matches
 }
 
-func (srv *Server) getMetricEntry(typ MetricType, name string) (*metricEntry, error) {
+func (srv *Server) AddWildcard(typ MetricType, name string) error {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	if !srv.running {
+		return Error("Server not running")
+	}
+	if typ >= NMetricTypes || typ < 0 {
+		return Error("Metric type invalid")
+	}
+	if err := CheckMetricName(name); err != nil {
+		return err
+	}
+
+	return srv.addWildcard(typ, name)
+}
+
+func (srv *Server) DeleteWildcard(typ MetricType, name string) error {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	if !srv.running {
+		return Error("Server not running")
+	}
+	if typ >= NMetricTypes || typ < 0 {
+		return Error("Metric type invalid")
+	}
+
+	delete(srv.wildcards[typ], name)
+	return nil
+}
+
+func (srv *Server) addWildcard(typ MetricType, name string) error {
+	if strings.Index(name, "*") != -1 {
+		if srv.wildcards[typ] == nil {
+			srv.wildcards[typ] = make(map[string]int)
+		}
+		srv.wildcards[typ][name] = 1
+		return nil
+	} else {
+		return Error("Not a wildcard")
+	}
+}
+
+func (srv *Server) getMetricEntry(typ MetricType, name string, wc bool) (*metricEntry, error) {
 	if err := CheckMetricName(name); err != nil {
 		return nil, err
 	}
 
 	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
 	if !srv.running {
-		srv.mu.Unlock()
 		return nil, Error("Server not running")
 	}
-	defer srv.mu.Unlock()
 
 	me := srv.metrics[typ][name]
 	if me == nil {
 		me = srv.createMetricEntry(typ, name)
 		srv.metrics[typ][name] = me
+		if wc && srv.AutoWc {
+			srv.addWildcard(typ, name)
+		}
 	}
 
 	me.Lock()
@@ -394,7 +442,7 @@ func (srv *Server) LiveLog(name string, chs []string) ([][]float64, int64, error
 		return nil, 0, err
 	}
 
-	me, err := srv.getMetricEntry(typ, name)
+	me, err := srv.getMetricEntry(typ, name, true)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -443,7 +491,7 @@ func (srv *Server) Log(name string, chs []string, from, length, gran int64) ([][
 		return nil, err
 	}
 
-	me, err := srv.getMetricEntry(typ, name)
+	me, err := srv.getMetricEntry(typ, name, true)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +577,7 @@ func (srv *Server) LiveWatch(name string, chs []string) (*Watcher, error) {
 		w.chs[i] = getChannelIndex(typ, n)
 	}
 
-	me, err := srv.getMetricEntry(typ, name)
+	me, err := srv.getMetricEntry(typ, name, true)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +617,7 @@ func (srv *Server) Watch(name string, chs []string, offs, gran int64) (*Watcher,
 	w.chs = w.aggr.channels()
 	w.C = w.out
 
-	me, err := srv.getMetricEntry(typ, name)
+	me, err := srv.getMetricEntry(typ, name, true)
 	if err != nil {
 		return nil, err
 	}

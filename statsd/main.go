@@ -48,7 +48,7 @@ func main() {
 		log.Println("Live log loaded")
 	}
 
-	srv := &Server{Ds: ds}
+	srv := &Server{Ds: ds, AutoWc: true}
 	log.Println("Server started")
 	srv.Start(lld)
 	lld = nil
