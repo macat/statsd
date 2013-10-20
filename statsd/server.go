@@ -22,15 +22,16 @@ func (err Error) Error() string {
 const LiveLogSize = 600
 
 type Server struct {
-	Ds       Datastore
-	Prefix   string
-	mu       sync.Mutex
-	wg       sync.WaitGroup
-	metrics  [NMetricTypes]map[string]*metricEntry
-	running  bool
-	stopping bool
-	quit     chan int
-	lastTick int64
+	Ds        Datastore
+	Prefix    string
+	mu        sync.Mutex
+	wg        sync.WaitGroup
+	metrics   [NMetricTypes]map[string]*metricEntry
+	wildcards [NMetricTypes]map[string]int
+	running   bool
+	stopping  bool
+	quit      chan int
+	lastTick  int64
 }
 
 type metricEntry struct {
@@ -133,7 +134,7 @@ func (srv *Server) InjectBytes(msg []byte) {
 	}
 }
 
-func (srv *Server) Inject(metric *Metric) error {
+func (srv *Server) InjectWithoutWildcards(metric *Metric) error {
 	if metric.Type >= NMetricTypes || metric.Type < 0 {
 		return Error("Metric type invalid")
 	}
@@ -154,6 +155,35 @@ func (srv *Server) Inject(metric *Metric) error {
 	me.recvdInputTick = true
 	me.inject(metric)
 	return nil
+}
+
+func (srv *Server) Inject(metric *Metric) error {
+	if err := srv.InjectWithoutWildcards(metric); err != nil {
+		return err
+	}
+
+	wcs, m := srv.getMatchingWildcards(metric.Type, metric.Name), *metric
+	for _, wc := range wcs {
+		m.Name = wc
+		if err := srv.InjectWithoutWildcards(&m); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (srv *Server) getMatchingWildcards(typ MetricType, name string) []string {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	matches := []string(nil)
+	for wc, _ := range srv.wildcards[typ] {
+		if MatchMetricName(name, wc) {
+			matches = append(matches, wc)
+		}
+	}
+	return matches
 }
 
 func (srv *Server) getMetricEntry(typ MetricType, name string) (*metricEntry, error) {
