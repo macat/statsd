@@ -102,3 +102,28 @@ func CheckMetricName(name string) error {
 	}
 	return nil
 }
+
+func MatchMetricName(name, pattern string) bool {
+	for len(pattern) > 0 {
+		if pattern[0] != '*' {
+			if len(name) == 0 || pattern[0] != name[0] {
+				return false
+			} else {
+				pattern, name = pattern[1:], name[1:]
+			}
+		} else {
+			pattern = pattern[1:]
+			if len(pattern) == 0 {
+				return true
+			}
+			for len(name) > 0 && name[0] != pattern[0] {
+				name = name[1:]
+			}
+			if len(name) == 0 {
+				return false
+			}
+			pattern, name = pattern[1:], name[1:]
+		}
+	}
+	return len(name) == 0
+}
