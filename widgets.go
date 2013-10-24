@@ -178,11 +178,11 @@ func (w *Widget) Delete() error {
 
 func (w *Widget) Serialize() map[string]interface{} {
 	return map[string]interface{}{
-		"id":       w.Id,
-		"type":     w.Type,
-		"dahboard": w.Dashboard,
-		"created":  w.Created.Format("2006-01-02 15:04:05"),
-		"config":   w.Config,
+		"id":        w.Id,
+		"type":      w.Type,
+		"dashboard": w.Dashboard,
+		"created":   w.Created.Format("2006-01-02 15:04:05"),
+		"config":    w.Config,
 	}
 }
 
@@ -196,7 +196,8 @@ var WidgetRouter = &Transactional{PrefixRouter{
 	"*uuid": MethodRouter{
 		"GET":    HandlerFunc(getWidget),
 		"DELETE": HandlerFunc(deleteWidget),
-		"PATCH":  HandlerFunc(patchWidget),
+		"PATCH":  HandlerFunc(changeWidget),
+		"PUT":    HandlerFunc(changeWidget),
 	},
 }}
 
@@ -314,7 +315,7 @@ func deleteWidget(t *Task) {
 	}
 }
 
-func patchWidget(t *Task) {
+func changeWidget(t *Task) {
 	if !access.HasPermission(t.Tx, t.Uid, "PATCH", "widget", "") {
 		t.Rw.WriteHeader(http.StatusForbidden)
 		return
@@ -328,11 +329,13 @@ func patchWidget(t *Task) {
 		panic(err)
 	}
 
-	json, ok := t.RecvJson().(map[string]interface{})
+	rawData, ok := t.RecvJson().(map[string]interface{})
 	if !ok {
-		t.SendError("Invalid JSON")
+		t.Rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
+
+	json := rawData["widget"].(map[string]interface{})
 
 	if _, ok := json["type"]; ok {
 		if w.Type, ok = json["type"].(string); !ok {
@@ -357,4 +360,6 @@ func patchWidget(t *Task) {
 	if err := w.Update(); err != nil {
 		panic(err)
 	}
+
+	t.SendJsonObject("widget", w.Serialize())
 }
