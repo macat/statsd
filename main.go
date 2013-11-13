@@ -28,6 +28,7 @@ func main() {
 
 	dbDriver := os.Getenv("DB_DRIVER")
 	dbSetup := []string{"user=" + os.Getenv("DB_USER"),
+		"password=" + os.Getenv("DB_PASSWORD"),
 		"dbname=" + os.Getenv("DB_NAME"),
 		"sslmode=" + os.Getenv("DB_SSLMODE")}
 	dsName := strings.Join(dbSetup, " ")
