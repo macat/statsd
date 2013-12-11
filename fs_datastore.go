@@ -701,7 +701,7 @@ func (s *fsDsSnapshot) readIdxEntry(n int64) (ts int64, pos int64, err error) {
 	if err := binary.Read(s.idx, binary.LittleEndian, d); err != nil {
 		return 0, 0, err
 	}
-	if d[0]%60 != 0 || d[1]%fsDsDSize != 0 {
+	if d[0] % 60 != 0 || d[1]%fsDsDSize != 0 {
 		return 0, 0, Error("Invalid index data")
 	}
 	return d[0], d[1], nil
